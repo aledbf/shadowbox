@@ -52,25 +52,39 @@ pre_fault_memory_test		intel	pass
 x86/smm_test			pvm	skip	no KVM_CAP_X86_SMM -- PVM stubs SMM
 x86/smm_test			intel	pass
 
-# --- real PVM differences, not yet explained --------------------------
-# Each of these passes under kvm-intel in the same L1, on the same guest
-# image, and fails under PVM.  They are recorded as expected failures so
-# the suite is usable, not because they are acceptable.
+# --- fail under PVM because of the PVM ABI, not a defect ---------------
 #
-# cr4_cpuid_sync_test: after the guest sets CR4.OSXSAVE, CPUID.1:ECX[27]
-# still reads back clear.  Suggests PVM's CR4 write path does not run the
-# runtime CPUID update.
-x86/cr4_cpuid_sync_test		pvm	fail	OSXSAVE not reflected in CPUID after CR4 write
-x86/cr4_cpuid_sync_test		intel	pass
-
-# kvm_pv_test: writing MSR_KVM_SYSTEM_TIME triple faults the guest
-# (KVM_EXIT_SHUTDOWN) where the test expects to reach its ucall.
-x86/kvm_pv_test			pvm	fail	MSR_KVM_SYSTEM_TIME write triple faults
+# All three want KVM to *inject an exception into the guest*, and a guest
+# that has not published a PVCS cannot be given one.  PVM delivers events
+# through MSR_PVM_VCPU_STRUCT and MSR_PVM_EVENT_ENTRY; a selftest guest is
+# an ordinary long-mode guest with its own IDT and sets neither, so
+# __do_pvm_event() has nowhere to write the event and raises a triple
+# fault.  Verified directly -- running these leaves
+#
+#   kvm_pvm: PVM: no vcpu struct delivering vector 13 (MSR_PVM_VCPU_STRUCT=0x0, ...)
+#
+# in L1's dmesg, vector 13 being the #GP each of them is waiting for.
+#
+# That is the rule for anything added to configs/kvm-selftests.txt: a
+# selftest whose guest expects to take an exception will not work under
+# PVM.  One whose events exit to userspace instead -- debug_regs, which
+# gets KVM_EXIT_DEBUG -- works fine.
+x86/kvm_pv_test			pvm	fail	guest expects an injected #GP; no PVCS published
 x86/kvm_pv_test			intel	pass
-
-# userspace_msr_exit_test: msr_filter_allow expects KVM_EXIT_X86_RDMSR and
-# gets KVM_EXIT_SHUTDOWN.  The other three subtests pass, so the filter
-# itself works; what does not is the exit to userspace, which suggests
-# PVM's MSR paths bypass kvm_msr_user_space().
-x86/userspace_msr_exit_test	pvm	fail	MSR filter userspace exit does not happen
+x86/userspace_msr_exit_test	pvm	fail	same: msr_filter_allow waits for an injected #GP
 x86/userspace_msr_exit_test	intel	pass
+
+# --- fails under PVM only with the default module parameters -----------
+#
+# The test has the VMM clear the guest's CR4.OSXSAVE and then checks that
+# the guest's CPUID reflects it.  PVM does not trap CPUID by default -- see
+# the comment at the top of arch/x86/include/uapi/asm/pvm_para.h, where a
+# PVM-aware guest is told to use the synthetic "invlpg; cpuid" sequence
+# instead -- so an ordinary guest's CPUID executes on hardware and returns
+# the host's OSXSAVE, not the guest's.
+#
+# Verified: with kvm_pvm.cpuid_intercept=1 this test passes.  So it is a
+# documented design decision with a knob, not a defect, and the recorded
+# expectation is for the default configuration.
+x86/cr4_cpuid_sync_test		pvm	fail	CPUID untrapped by default; passes with cpuid_intercept=1
+x86/cr4_cpuid_sync_test		intel	pass

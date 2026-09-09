@@ -6,10 +6,16 @@
 # that exercises nothing PVM touches is 1.2MB of payload and a minute of
 # runtime for no information.
 #
-# The honest caveat: these build a guest that expects to run at CPL0 with
-# its own page tables, which is not what a PVM VM provides.  Many will
-# not pass, and that is the point of configs/kvm-selftests-expect.txt --
-# "unsupported" should be a recorded outcome, not noise.
+# These build a guest that expects to run at CPL0 with its own page
+# tables, which is not what a PVM VM provides -- and yet most of them
+# pass, because PVM's non-PVM-mode bootstrap carries them.
+#
+# The one rule for adding to this list: a selftest whose guest expects to
+# take an *injected* exception will not work under PVM.  Events are
+# delivered through MSR_PVM_VCPU_STRUCT and MSR_PVM_EVENT_ENTRY, and a
+# selftest guest publishes neither, so __do_pvm_event() triple faults it.
+# A test whose events exit to userspace instead is fine.  See
+# configs/kvm-selftests-expect.txt for the three that hit this.
 
 # Memslot lifetime.  The reason this list exists: PVM pins the PVCS page
 # and re-pins it from KVM_REQ_GPC_REFRESH when the map changes.
