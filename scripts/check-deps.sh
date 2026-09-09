@@ -29,6 +29,48 @@ have qemu-system-x86_64 "apt install qemu-system-x86"
 have mmdebstrap         "apt install mmdebstrap  (only needed for L1)"
 have mkfs.ext4          "apt install e2fsprogs   (only needed for L1)"
 
+# The tooling that turns "it is slow" into "it is slow here".  Missing any
+# of these is not fatal, but each one costs a specific capability, so say
+# which.
+echo "profiling and debugging:"
+have_lib() { # header, package, what it buys
+	if echo "#include <$1>" | gcc -E - >/dev/null 2>&1; then
+		printf '  \033[32mok\033[0m   %-24s %s\n' "$2" "$3"
+	else
+		printf '  \033[33mmiss\033[0m %-24s %s\n' "$2" "$3"
+	fi
+}
+have_lib traceevent/event-parse.h libtraceevent-dev \
+	"REQUIRED for 'perf kvm stat' -- it is compiled out without this"
+have_lib elfutils/libdw.h         libdw-dev \
+	"DWARF: symbol resolution and --call-graph dwarf"
+have_lib libunwind.h              libunwind-dev \
+	"call graphs from a profile"
+have_lib capstone/capstone.h      libcapstone-dev \
+	"perf annotate: which instructions are hot"
+have_lib slang.h                  libslang2-dev \
+	"perf report TUI"
+# python3-config can be installed while the headers it points at are not,
+# which perf only discovers most of the way through a build.
+if python3-config --includes 2>/dev/null | tr ' ' '\n' | sed -n 's/^-I//p' |
+		while read -r d; do [ -f "$d/Python.h" ] && exit 0; done; then
+	printf '  \033[33mmiss\033[0m %-24s %s\n' python3-dev "perf jevents and scripting"
+else
+	printf '  \033[32mok\033[0m   %-24s %s\n' python3-dev "perf jevents and scripting"
+fi
+
+# Optional: report, but do not fail the check on them.
+opt() {
+	if command -v "$1" >/dev/null 2>&1; then
+		printf '  \033[32mok\033[0m   %-24s %s\n' "$1" "$2"
+	else
+		printf '  \033[33mmiss\033[0m %-24s %s\n' "$1" "$2"
+	fi
+}
+opt gdb        "attach to a guest kernel with qemu -s -S"
+opt sparse     "make C=1 static checking"
+opt fakechroot "lets 'make rootfs' run without sudo"
+
 echo "kernel headers and libs:"
 for lib in libelf.h openssl/ssl.h; do
 	if echo "#include <$lib>" | gcc -E - >/dev/null 2>&1; then
