@@ -12,10 +12,13 @@ suite="${1:-default}"
 [ -f "$OUT/images/host-bzImage" ]   || die "no host kernel -- run 'make host-kernel'"
 [ -f "$OUT/images/l1-rootfs.ext4" ] || die "no L1 rootfs -- run 'make rootfs'"
 
-# What L1 needs from us, and nothing else.
-payload="$OUT/payload"
-rm -rf "$payload"; mkdir -p "$payload"
+# What L1 needs from us, and nothing else.  A fresh directory each run, and
+# gone afterwards: a fixed path under out/ that gets rm -rf'd at the start
+# is one sudo run away from breaking every unprivileged run after it.
+payload="$(mktemp -d "${TMPDIR:-/tmp}/pvm-payload.XXXXXX")"
+trap 'rm -rf "$payload"' EXIT
 cp "$OUT/images/guest-vmlinux" "$OUT/images/initrd.cpio.gz" "$payload/"
+install -m 0755 "$TESTBED/scripts/l1-agent.sh" "$payload/agent.sh"
 
 mkdir -p "$OUT/logs"
 log_file="$OUT/logs/l1-$suite.log"
@@ -29,7 +32,8 @@ timeout --foreground -k 5 "$((BOOT_TIMEOUT * 3))" \
 	-smp "$L1_CPUS" -m "$L1_MEM" \
 	-kernel "$OUT/images/host-bzImage" \
 	-drive file="$OUT/images/l1-rootfs.ext4",if=virtio,format=raw \
-	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite" \
+	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite \
+systemd.mask=serial-getty@ttyS0.service systemd.show_status=false" \
 	-virtfs local,path="$payload",mount_tag=payload,security_model=none,readonly=on \
 	-nographic -no-reboot -display none -serial mon:stdio \
 	< /dev/null 2>&1 | tee "$log_file"

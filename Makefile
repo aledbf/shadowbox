@@ -1,5 +1,6 @@
 # PVM testbed.
 #
+# make regress  everything that must pass before anything riskier is run
 # make stage0   guest kernel as an ordinary KVM guest -- no PVM host needed
 # make stage1   host kernel boots in L1 and kvm-pvm registers
 # make stage2   guest kernel under PVM, inside L1
@@ -12,7 +13,7 @@ S     := scripts
 KSRC ?= /home/aledbf/Trabajo/github/linux-aledbf
 export KSRC
 
-.PHONY: all help deps guest-kernel host-kernel initrd rootfs \
+.PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         stage0 stage1 stage2 full perf clean distclean
 
 help:
@@ -36,6 +37,9 @@ rootfs: host-kernel
 # Stage 0 is the one that pays for itself immediately: the guest kernel
 # has to boot as a plain KVM guest too, so all of the PIE and early boot
 # work can be tested here without a PVM host existing at all.
+regress: guest-kernel host-kernel initrd
+	@$(S)/regress.sh
+
 stage0: guest-kernel initrd
 	@$(S)/run-guest.sh --boot pvh     --suite smoke   --name stage0-pvh-smoke
 	@$(S)/run-guest.sh --boot bzimage --suite smoke   --name stage0-bzimage-smoke

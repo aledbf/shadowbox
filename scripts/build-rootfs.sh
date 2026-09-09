@@ -92,7 +92,7 @@ install -d "$ROOT/etc/systemd/system/multi-user.target.wants"
 ln -sf ../pvm-agent.service \
 	"$ROOT/etc/systemd/system/multi-user.target.wants/pvm-agent.service"
 
-install -m 0755 "$TESTBED/scripts/l1-agent.sh" "$ROOT/opt/pvm/agent.sh"
+install -m 0755 "$TESTBED/scripts/l1-stub.sh" "$ROOT/opt/pvm/agent.sh"
 
 # L1 is disposable and reachable only over its own serial console.
 sed -i 's/^root:[^:]*:/root::/' "$ROOT/etc/shadow"
