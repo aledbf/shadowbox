@@ -59,6 +59,8 @@
 #define GUEST_MEM_SIZE	(8UL << 20)
 #define PVCS_GPA	(GUEST_PHYS_BASE + 0x2000)
 
+static const char *exit_reason_name(int r);
+
 static int pass, fail;
 static const char *current_case;
 
@@ -537,6 +539,98 @@ static void test_memslot_churn(struct vm *v)
 		   run_last_errno);
 }
 
+/* --- a PVCS the host cannot pin, taken all the way to KVM_RUN --------- */
+
+/*
+ * virt-pvm/linux#7: a cross-host snapshot restore panicked the *host* with
+ * a NULL dereference in pvm_vcpu_run(), reading pvcs->event_flags with the
+ * guard on pvm->msr_vcpu_struct -- the guest physical address -- rather
+ * than on pvm->pvcs, the mapped pointer.  A VMM that restores MSRs before
+ * it adds memory regions sets one without the other.
+ *
+ * The shape that crashed is still in the code, deliberately: the fix is
+ * the WARN_ON_ONCE plus triple fault at the top of pvm_vcpu_run(), and
+ * before that the KVM_REQ_GPC_REFRESH that pvm_set_msr() raises when the
+ * pin fails.  What these two cases check is that the fail-closed path
+ * really is the one taken, from the VMM's side, for both ways of making
+ * the pin fail: no memslot at all, and a memslot whose backing memory
+ * cannot be pinned for write.
+ *
+ * The assertion in both is the same and it is about the host: the ioctls
+ * keep working afterwards.  A host that oopsed would not answer at all.
+ */
+static void run_with_unpinnable_pvcs(struct vm *v, const char *what,
+				     uint64_t gpa)
+{
+	int i, entered = 0, refused = 0, last_errno = 0, last_reason = -1;
+
+	if (set_msr(v, MSR_PVM_VCPU_STRUCT, gpa) <= 0) {
+		nok("%s: setting the PVCS was rejected outright; the "
+		    "restore-before-memory-regions path depends on it being "
+		    "stored and resolved later", what);
+		return;
+	}
+
+	for (i = 0; i < 20; i++) {
+		if (ioctl(v->vcpu, KVM_RUN, 0) < 0) {
+			refused++;
+			last_errno = errno;
+		} else {
+			entered++;
+			last_reason = v->run->exit_reason;
+		}
+	}
+
+	/* Back to something sane, and prove the vCPU still answers. */
+	if (set_msr(v, MSR_PVM_VCPU_STRUCT, 0) <= 0) {
+		nok("%s: the vCPU stopped answering after %d entries",
+		    what, entered);
+		return;
+	}
+
+	if (entered == 0 && refused == 0) {
+		nok("%s: KVM_RUN was never called", what);
+		return;
+	}
+
+	ok("%s: %d entries (last exit %s), %d refused (last errno %d), "
+	   "host still answering", what, entered,
+	   last_reason < 0 ? "none" : exit_reason_name(last_reason),
+	   refused, last_errno);
+}
+
+static void test_unpinnable_pvcs(struct vm *v)
+{
+	void *ro;
+
+	current_case = "pvm/vcpu-struct/unbacked-run";
+	run_with_unpinnable_pvcs(v, "no memslot behind the PVCS",
+				 GUEST_PHYS_BASE + GUEST_MEM_SIZE + 0x10000);
+
+	/*
+	 * A memslot whose userspace mapping is read-only.  PVM pins the PVCS
+	 * page with FOLL_WRITE -- it writes the event frame into it -- so the
+	 * pin fails even though the memslot itself is perfectly valid.
+	 */
+	current_case = "pvm/vcpu-struct/readonly-run";
+	ro = mmap(NULL, GUEST_MEM_SIZE, PROT_READ,
+		  MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+	if (ro == MAP_FAILED) {
+		nok("mmap PROT_READ: %s", strerror(errno));
+		return;
+	}
+	if (set_memslot(v, 1, GUEST_PHYS_BASE + 2 * GUEST_MEM_SIZE,
+			GUEST_MEM_SIZE, ro, 0)) {
+		nok("adding a read-only-backed memslot: %s", strerror(errno));
+		munmap(ro, GUEST_MEM_SIZE);
+		return;
+	}
+	run_with_unpinnable_pvcs(v, "PVCS on read-only backing memory",
+				 GUEST_PHYS_BASE + 2 * GUEST_MEM_SIZE);
+	set_memslot(v, 1, GUEST_PHYS_BASE + 2 * GUEST_MEM_SIZE, 0, ro, 0);
+	munmap(ro, GUEST_MEM_SIZE);
+}
+
 /* --- is this even a PVM host? ----------------------------------------- */
 
 static int is_pvm_host(void)
@@ -570,6 +664,7 @@ int main(void)
 	test_vcpu_struct(&v);
 	test_event_entry(&v);
 	test_msr_window(&v);
+	test_unpinnable_pvcs(&v);
 	test_memslot_churn(&v);
 
 	vm_teardown(&v);
