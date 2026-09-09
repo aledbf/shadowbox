@@ -12,6 +12,19 @@
 # root-owned files.
 
 source "$(dirname "$0")/lib.sh"
+
+# Hand out/ back on the way out, however we leave.  This used to be a
+# plain chown at the end of the script, which meant that a run that
+# failed part way -- or "sudo make rootfs", where the Makefile builds the
+# host kernel as root first -- left root-owned files behind and every
+# later unprivileged build died on "cannot create modules.order".
+restore_ownership() {
+	if [ "${SUDO_UID:-}" ] && [ "${SUDO_GID:-}" ]; then
+		chown -R "$SUDO_UID:$SUDO_GID" "$OUT" 2>/dev/null || true
+	fi
+}
+trap restore_ownership EXIT
+
 need mmdebstrap "Debian/Ubuntu: apt install mmdebstrap"
 need mkfs.ext4  "Debian/Ubuntu: apt install e2fsprogs"
 
@@ -104,11 +117,6 @@ mkdir -p "$OUT/images"
 rm -f "$IMG"
 mkfs.ext4 -q -L pvm-l1 -d "$ROOT" "$IMG" "$SIZE"
 
-# Under sudo, everything above belongs to root.  Hand it back, or the
-# next unprivileged 'make' fails on files it cannot remove.
-if [ "${SUDO_UID:-}" ] && [ "${SUDO_GID:-}" ]; then
-	log "restoring ownership to uid $SUDO_UID"
-	chown -R "$SUDO_UID:$SUDO_GID" "$OUT"
-fi
+[ "${SUDO_UID:-}" ] && log "restoring ownership of $OUT to uid $SUDO_UID"
 
 log "L1 rootfs ready: $IMG"

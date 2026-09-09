@@ -8,6 +8,7 @@
 # make perf     the measurements, on PVM and on plain KVM, side by side
 # make mmu      shadow MMU event counts, both vendors
 # make quick    regress + stage2, the shortest thing worth running
+# make security negative tests -- on plain KVM and under PVM -- + sanitize
 # make sanitize scan every log kept under out/logs for kernel complaints
 # make soak     stage2 N times over, then sanitize the lot
 
@@ -19,7 +20,7 @@ export KSRC
 
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
-        host-sanitize-log soak clean distclean
+        host-sanitize-log security soak clean distclean
 
 # How many times "make soak" repeats stage 2.
 SOAK ?= 10
@@ -87,6 +88,16 @@ perf: guest-kernel initrd host-kernel check-rootfs
 # The cheapest bug detector here: it needs nobody to have written a test
 # for the thing that went wrong.  Every runner already calls it on its own
 # log; this scans everything kept from every run so far.
+# Negative tests: the things the guest must not be able to do.  Run on
+# both, because a case that fails identically under plain KVM is a bug in
+# the test, and one that passes there and fails here is a bug in PVM.
+security: guest-kernel initrd host-kernel check-rootfs
+	@echo "=== negative tests: plain KVM, one layer ==="
+	@$(S)/run-guest.sh --boot pvh --suite security --name security-kvm
+	@echo "=== negative tests: PVM inside L1 ==="
+	@$(S)/run-l1.sh security pvm
+	@$(S)/sanitize-log.sh
+
 sanitize:
 	@$(S)/sanitize-log.sh
 

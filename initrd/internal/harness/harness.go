@@ -22,6 +22,12 @@ const (
 	Core  = "default" // the everyday run
 	Full  = "full"    // everything, including the slow and the invasive
 	Perf  = "perf"    // measurements, not assertions
+
+	// Security is the negative tests: things the guest must not be able
+	// to do.  Like Perf it is outside the smoke/default/full ranking, so
+	// "default" does not drag it in; cases list Full alongside it when
+	// they should also run there.
+	Security = "security"
 )
 
 type Case struct {

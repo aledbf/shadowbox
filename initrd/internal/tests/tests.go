@@ -29,6 +29,7 @@ func Register(h *harness.Harness) {
 	registerStress(h)
 	registerPerf(h)
 	registerParallel(h)
+	registerSecurity(h)
 }
 
 // RunVictim is the entry point for the child processes some tests need:
@@ -42,6 +43,12 @@ func RunVictim(args []string) {
 		victimLoop()
 	case "victim-exit":
 		os.Exit(42)
+	case "victim-privinsn":
+		victimPrivInsn(args[1])
+	case "victim-execpage":
+		victimExecPage(args[1])
+	case "victim-readaddr":
+		victimReadAddr(args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown victim mode: %s\n", args[0])
 		os.Exit(127)
