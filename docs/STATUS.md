@@ -256,6 +256,46 @@ It is also the measurement to optimise against: `perf/parallel-fork`
 shows PVM's penalty growing from 3.85x at one vCPU to 6.40x at eight,
 which is the only figure in this document that gets worse with scale.
 
+### What a PV MMU would actually buy
+
+Profiling the host during `perf/parallel-fork` at eight vCPUs, before
+committing to a protocol change:
+
+```
+28.55%  kvm_mmu_page_fault
+27.43%  asm_fred_entry_from_kvm        (self)
+24.64%  queued_write_lock_slowpath     (7.04% self)
+22.13%  paging64_page_fault
+21.17%  x86_emulate_instruction
+19.94%  pvm_handle_exit
+17.60%  queued_spin_lock_slowpath      (self)
+ 7.05%  emulator_read_write
+ 5.97%  emulator_write_guest
+```
+
+`emulator_write_guest` is the guest storing into its own page tables and
+the host emulating the store, because the page is write-protected. That
+is the work a PV MMU deletes outright, and with it most of the 28% in
+`kvm_mmu_page_fault`, since those faults are what the write-protection
+generates.
+
+But the two lock slowpaths together are the larger share, and they are
+`kvm->mmu_lock` contended across vCPUs. A PV MMU helps them only
+indirectly, by taking the lock fewer times. What remains after that is
+architectural: KVM's answer to mmu_lock contention was the TDP MMU, with
+per-SPTE cmpxchg under RCU, and shadow paging cannot use it.
+
+So the case for the protocol work is good but not unlimited: it removes a
+whole class of work, and the residual is a lock that shadow paging in KVM
+has never had a good answer for.
+
+One caveat on reading the table: `asm_fred_entry_from_kvm` showing 27%
+*self* in a small assembly stub is more likely the PMU's NMI landing
+while the CPU is in the guest and being attributed to the host's
+re-entry path than it is real time spent there. Host sampling cannot see
+inside guest execution, which is the same limitation that made profiling
+the switcher useless earlier.
+
 ## The ceiling: a PVM host cannot use KPTI
 
 Measured, not inferred.  Booting L1 with `pti=on`:
