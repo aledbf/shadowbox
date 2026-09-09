@@ -201,6 +201,17 @@ func registerCPUID(h *harness.Harness) {
 					"is not emulated: the guest will report a mitigation "+
 					"it does not have", advertised)
 			}
+
+			// Same rule, different register.  There is one hardware
+			// PKRU and PVM forces it to 0 while the guest runs, so
+			// there is no guest architectural PKRU to advertise.
+			for _, f := range []string{"pku", "ospke"} {
+				if flags[f] {
+					return fmt.Errorf("PVM advertises %q, but it keeps no "+
+						"guest architectural PKRU: hardware PKRU is "+
+						"forced to 0 for the duration of the guest", f)
+				}
+			}
 			// eIBRS is selected from ARCH_CAPABILITIES rather than
 			// CPUID, so clearing the CPUID bits is not enough on its
 			// own -- kvm_caps.supported_arch_cap has to drop

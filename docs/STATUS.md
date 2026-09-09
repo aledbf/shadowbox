@@ -334,6 +334,43 @@ default and **PVM cannot run at all**.  For the "better than what cloud
 providers have now" question this is the first gate, ahead of any
 performance number.
 
+## What hiding PKU costs
+
+`pvm_set_cpu_caps()` used to advertise PKU with a comment calling it "a
+temporary fix": exposing it keeps the guest's XCR0 equal to the host's,
+which avoids an XCR0 switch on every entry and exit. It is no longer
+advertised, because there is one hardware PKRU and PVM needs it to be
+three things at once — the host's, the guest's architectural one, and the
+zero it forces for the duration of the guest — so there is no guest PKRU
+to advertise.
+
+The comment's performance claim was correct, and the cost is not small.
+Medians of five runs each, PVM in L1, 2 vCPUs, same machine, the only
+difference being the two `kvm_cpu_cap_*` lines:
+
+```
+metric                              PKU exposed   PKU hidden    delta
+perf/syscall.ns_per_getpid                205.3        204.7    -0.3%
+perf/context-switch.ns_per_roundtrip      456.0        486.5    +6.7%
+perf/fork-exec.us_per_fork_exec          2958.0       3170.0    +7.2%
+perf/page-fault.ns_per_fault            11590.0      14810.0   +27.8%
+perf/parallel-fork.us_per_fork_exec      1047.0       1377.0   +31.5%
+perf/parallel-fault.ns_per_page_cycle    2636.0       4170.0   +58.2%
+```
+
+Read that with the caveat that makes it an upper bound rather than the
+number a POC would see. **This testbed amplifies exactly this cost.** The
+PVM host runs as a guest of L0, so every `xsetbv` is a VM exit to L0; on
+bare metal it is a serializing instruction and nothing more. The syscall
+row is the control: the switcher's direct syscall path never touches
+XCR0, and it did not move.
+
+So the honest reading is: correctness is not negotiable and the feature
+stays hidden, the real cost on bare metal is unmeasured and is the thing
+to measure next, and the way to get the performance back is to finish
+separating the three PKRU users rather than to advertise state that is
+not kept.
+
 ## Known gaps in the port
 
 - `arch/x86/boot/compressed/` has not been ported, so the bzImage path

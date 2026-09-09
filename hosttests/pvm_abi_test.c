@@ -47,6 +47,10 @@
 
 #include <linux/kvm.h>
 
+#ifndef X86_CR4_PKE
+#define X86_CR4_PKE (1UL << 22)
+#endif
+
 /* From arch/x86/include/uapi/asm/pvm_para.h. */
 #define MSR_PVM_LINEAR_ADDRESS_RANGE	0x4b564df0
 #define MSR_PVM_VCPU_STRUCT		0x4b564df1
@@ -98,7 +102,48 @@ struct vm {
 	struct kvm_run *run;
 	size_t run_size;
 	void *mem;
+	struct kvm_cpuid2 *cpuid;   /* what KVM_GET_SUPPORTED_CPUID said */
 };
+
+#define MAX_CPUID_ENTRIES 256
+
+/* The CPUID KVM says it supports, which for a PVM host is what PVM chose
+ * to advertise in pvm_set_cpu_caps().  Also what a VMM hands the vCPU, and
+ * without it the vCPU has no guest_cpu_cap at all -- CR4.PKE then reads as
+ * a reserved bit and KVM_SET_SREGS refuses it.
+ */
+static struct kvm_cpuid2 *get_supported_cpuid(struct vm *v)
+{
+	struct kvm_cpuid2 *c;
+	size_t bytes = sizeof(*c) + MAX_CPUID_ENTRIES * sizeof(c->entries[0]);
+
+	c = calloc(1, bytes);
+	if (!c)
+		die("calloc cpuid");
+	c->nent = MAX_CPUID_ENTRIES;
+	if (ioctl(v->kvm, KVM_GET_SUPPORTED_CPUID, c) < 0)
+		die("KVM_GET_SUPPORTED_CPUID");
+	return c;
+}
+
+static bool cpuid_has(struct kvm_cpuid2 *c, uint32_t function, uint32_t index,
+		      int reg, unsigned bit)
+{
+	uint32_t i;
+
+	for (i = 0; i < c->nent; i++) {
+		struct kvm_cpuid_entry2 *e = &c->entries[i];
+		uint32_t regs[4];
+
+		if (e->function != function)
+			continue;
+		if ((e->flags & KVM_CPUID_FLAG_SIGNIFCANT_INDEX) && e->index != index)
+			continue;
+		regs[0] = e->eax; regs[1] = e->ebx; regs[2] = e->ecx; regs[3] = e->edx;
+		return regs[reg] & (1u << bit);
+	}
+	return false;
+}
 
 /*
  * KVM_SET_MSRS returns how many entries it managed to write, so a return
@@ -169,6 +214,10 @@ static void vm_setup(struct vm *v)
 	if (v->vcpu < 0)
 		die("KVM_CREATE_VCPU");
 
+	v->cpuid = get_supported_cpuid(v);
+	if (ioctl(v->vcpu, KVM_SET_CPUID2, v->cpuid) < 0)
+		die("KVM_SET_CPUID2");
+
 	v->run_size = ioctl(v->kvm, KVM_GET_VCPU_MMAP_SIZE, 0);
 	v->run = mmap(NULL, v->run_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 		      v->vcpu, 0);
@@ -182,6 +231,7 @@ static void vm_teardown(struct vm *v)
 	close(v->vcpu);
 	close(v->vm);
 	munmap(v->mem, GUEST_MEM_SIZE);
+	free(v->cpuid);
 	close(v->kvm);
 }
 
@@ -631,6 +681,160 @@ static void test_unpinnable_pvcs(struct vm *v)
 	munmap(ro, GUEST_MEM_SIZE);
 }
 
+/* --- does the host's PKRU leak into guest state? ---------------------- */
+
+/*
+ * PVM runs the guest at hardware CPL3 on the host's own PKRU, so
+ * pvm_load_guest_xsave_state() forces PKRU to 0 before entry -- otherwise
+ * a host process with a restrictive PKRU would deny the guest access to
+ * its own pages -- and restores the host's value on exit.
+ *
+ * The trouble is the order.  Common KVM brackets ->vcpu_run() with
+ * kvm_load_guest_pkru() / kvm_load_host_pkru(), and the latter does
+ *
+ *     vcpu->arch.pkru = rdpkru();
+ *
+ * which runs *after* PVM's wrapper has already put the host's value back.
+ * So vcpu->arch.pkru -- the guest's architectural PKRU, what KVM_GET_XSAVE
+ * hands the VMM and what goes into a snapshot -- ends up holding the
+ * host's.
+ *
+ * Both halves of the invariant are at stake: the host's PKRU must not
+ * restrict the guest (the wrapper sees to that) and must not leak into it
+ * (this is where it does).  The bracketing only runs when the guest has
+ * XCR0.PKRU or CR4.PKE set, so the test sets CR4.PKE the way a Linux guest
+ * with PKU advertised would.
+ */
+static uint32_t host_pkru(void)
+{
+	uint32_t eax, edx, ecx = 0;
+
+	/* rdpkru */
+	asm volatile(".byte 0x0f,0x01,0xee" : "=a"(eax), "=d"(edx) : "c"(ecx));
+	return eax;
+}
+
+static void cpuid_count(uint32_t leaf, uint32_t sub, uint32_t r[4])
+{
+	asm volatile("cpuid"
+		     : "=a"(r[0]), "=b"(r[1]), "=c"(r[2]), "=d"(r[3])
+		     : "a"(leaf), "c"(sub));
+}
+
+#define XFEATURE_PKRU 9
+
+/*
+ * The same rule the SPEC_CTRL family is held to: a feature may only be
+ * advertised if the state behind it is actually handled.  PVM runs the
+ * guest at hardware CPL3 on the host's PKRU and forces it to zero for the
+ * duration, so there is no guest architectural PKRU at all -- one
+ * register is being asked to be three things at once (the host's, the
+ * guest's, and PVM's own supervisor isolation).
+ */
+static void test_pku_not_advertised(struct vm *v)
+{
+	bool pku = cpuid_has(v->cpuid, 7, 0, 2, 3);
+	bool ospke = cpuid_has(v->cpuid, 7, 0, 2, 4);
+
+	current_case = "pvm/pku-not-advertised";
+	if (pku || ospke)
+		nok("KVM_GET_SUPPORTED_CPUID advertises%s%s, but PVM forces "
+		    "hardware PKRU to 0 while the guest runs and keeps no "
+		    "guest architectural PKRU",
+		    pku ? " PKU" : "", ospke ? " OSPKE" : "");
+	else
+		ok("neither PKU nor OSPKE advertised");
+}
+
+static void test_pkru_leak(struct vm *v)
+{
+	struct kvm_sregs sregs;
+	struct kvm_xsave xsave;
+	uint32_t r[4], offset, size, mine;
+	uint32_t guest_pkru;
+	int i;
+
+	current_case = "pvm/pkru-not-leaked";
+
+	cpuid_count(0, 0, r);
+	if (r[0] < 0xd) {
+		ok("no XSAVE leaf on this CPU; nothing to check");
+		return;
+	}
+	cpuid_count(0xd, 0, r);
+	if (!(r[0] & (1u << XFEATURE_PKRU))) {
+		ok("the host CPU has no PKRU xstate component");
+		return;
+	}
+	cpuid_count(0xd, XFEATURE_PKRU, r);
+	size = r[0];
+	offset = r[1];
+	if (size < sizeof(uint32_t) || offset + size > sizeof(xsave.region)) {
+		nok("PKRU xstate component is at offset %u size %u, which does "
+		    "not fit the KVM_GET_XSAVE buffer", offset, size);
+		return;
+	}
+
+	/* A Linux guest told it has PKU sets CR4.PKE; do the same. */
+	if (ioctl(v->vcpu, KVM_GET_SREGS, &sregs) < 0) {
+		nok("KVM_GET_SREGS: %s", strerror(errno));
+		return;
+	}
+	sregs.cr4 |= X86_CR4_PKE;
+	if (ioctl(v->vcpu, KVM_SET_SREGS, &sregs) < 0) {
+		ok("the host refuses CR4.PKE (%s), so the PKRU bracketing "
+		   "never runs", strerror(errno));
+		return;
+	}
+
+	/*
+	 * And confirm it stuck.  kvm_load_{guest,host}_pkru() only run when
+	 * the guest has XCR0.PKRU or CR4.PKE, so a CR4 write that was quietly
+	 * dropped would make this case pass while testing nothing -- the same
+	 * trap the memslot churn case fell into.
+	 */
+	memset(&sregs, 0, sizeof(sregs));
+	if (ioctl(v->vcpu, KVM_GET_SREGS, &sregs) < 0) {
+		nok("KVM_GET_SREGS after setting CR4.PKE: %s", strerror(errno));
+		return;
+	}
+	if (!(sregs.cr4 & X86_CR4_PKE)) {
+		nok("CR4.PKE did not stick (cr4=%#llx), so the PKRU bracketing "
+		    "never ran and this case proved nothing",
+		    (unsigned long long)sregs.cr4);
+		return;
+	}
+
+	for (i = 0; i < 5; i++)
+		ioctl(v->vcpu, KVM_RUN, 0);
+
+	memset(&xsave, 0, sizeof(xsave));
+	if (ioctl(v->vcpu, KVM_GET_XSAVE, &xsave) < 0) {
+		nok("KVM_GET_XSAVE: %s", strerror(errno));
+		return;
+	}
+	memcpy(&guest_pkru, (char *)xsave.region + offset, sizeof(guest_pkru));
+	mine = host_pkru();
+
+	if (guest_pkru != 0 && guest_pkru == mine) {
+		nok("the guest's saved PKRU is %#x, which is this process's own "
+		    "PKRU: the host's value is being handed to the VMM as guest "
+		    "state and would be written into a snapshot", guest_pkru);
+		return;
+	}
+	/*
+	 * A clean result here is worth less than it looks.  This vCPU has no
+	 * PVM state, so pvm_vcpu_run() returns early on non_pvm_mode and the
+	 * PVM wrappers that put the host's PKRU back never run -- which is
+	 * exactly the step that would make the core's
+	 * "vcpu->arch.pkru = rdpkru()" pick up the host's value.  So this
+	 * shows the core's own bracketing round-trips correctly; it does not
+	 * clear PVM of the leak, which needs a vCPU that really enters.
+	 */
+	ok("guest PKRU %#x, host PKRU %#x (vCPU never left non-PVM mode, so "
+	   "the PVM wrappers did not run)", guest_pkru, mine);
+}
+
 /* --- is this even a PVM host? ----------------------------------------- */
 
 static int is_pvm_host(void)
@@ -665,6 +869,8 @@ int main(void)
 	test_event_entry(&v);
 	test_msr_window(&v);
 	test_unpinnable_pvcs(&v);
+	test_pku_not_advertised(&v);
+	test_pkru_leak(&v);
 	test_memslot_churn(&v);
 
 	vm_teardown(&v);

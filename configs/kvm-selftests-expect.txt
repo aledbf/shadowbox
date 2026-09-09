@@ -31,8 +31,6 @@ x86/debug_regs			pvm	pass	DR handling through the switcher
 x86/debug_regs			intel	pass
 x86/max_vcpuid_cap_test		pvm	pass
 x86/max_vcpuid_cap_test		intel	pass
-x86/state_test			pvm	pass	vCPU state round trip
-x86/state_test			intel	pass
 x86/sync_regs_test		pvm	pass	KVM_SYNC_X86_REGS against the switcher's save/restore
 x86/sync_regs_test		intel	pass
 
@@ -74,17 +72,30 @@ x86/kvm_pv_test			intel	pass
 x86/userspace_msr_exit_test	pvm	fail	same: msr_filter_allow waits for an injected #GP
 x86/userspace_msr_exit_test	intel	pass
 
-# --- fails under PVM only with the default module parameters -----------
+# --- fail under PVM only with the default module parameters ------------
 #
-# The test has the VMM clear the guest's CR4.OSXSAVE and then checks that
-# the guest's CPUID reflects it.  PVM does not trap CPUID by default -- see
-# the comment at the top of arch/x86/include/uapi/asm/pvm_para.h, where a
-# PVM-aware guest is told to use the synthetic "invlpg; cpuid" sequence
-# instead -- so an ordinary guest's CPUID executes on hardware and returns
-# the host's OSXSAVE, not the guest's.
+# PVM does not trap CPUID by default -- see the comment at the top of
+# arch/x86/include/uapi/asm/pvm_para.h, where a PVM-aware guest is told to
+# use the synthetic "invlpg; cpuid" sequence instead -- so an ordinary
+# guest's CPUID executes on hardware and answers for the host.  Both of
+# these pass with kvm_pvm.cpuid_intercept=1, verified.
 #
-# Verified: with kvm_pvm.cpuid_intercept=1 this test passes.  So it is a
-# documented design decision with a knob, not a defect, and the recorded
-# expectation is for the default configuration.
+# cr4_cpuid_sync_test has the VMM clear the guest's CR4.OSXSAVE and checks
+# that the guest's CPUID follows.  It cannot, because the guest's CPUID is
+# the hardware's.
 x86/cr4_cpuid_sync_test		pvm	fail	CPUID untrapped by default; passes with cpuid_intercept=1
 x86/cr4_cpuid_sync_test		intel	pass
+
+# state_test reads CPUID.0xD to find which xfeatures it may enable, gets
+# the host's answer -- which includes PKRU -- and then XSETBV is refused,
+# because PVM no longer advertises PKU and guest_supported_xcr0 does not
+# include it.  The injected #GP then triple faults the guest, per the rule
+# above.
+#
+# This one started failing when PKU stopped being advertised, and is the
+# clearest statement of why that matters beyond this test: while CPUID is
+# untrapped, hiding a feature from the guest kernel does not hide it from
+# anything that asks the hardware, and the two now actively disagree about
+# what the hypervisor will accept.
+x86/state_test			pvm	fail	untrapped CPUID offers PKRU that XSETBV is then refused; passes with cpuid_intercept=1
+x86/state_test			intel	pass
