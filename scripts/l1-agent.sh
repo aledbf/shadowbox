@@ -74,6 +74,37 @@ elif [ "$SUITE" = mmu ]; then
 	# not where.
 	MODE=mmu
 	SUITE=perf
+elif [ "$SUITE" = hosttests ]; then
+	# No guest at all.  These drive the KVM API from L1 directly, which
+	# is the only way to reach the PVM MSRs and the PVCS pinning: the
+	# guest-side suite runs at guest CPL3 and cannot touch either.
+	MODE=hosttests
+fi
+
+if [ "$MODE" = hosttests ]; then
+	rc=0
+	found=0
+	for t in /mnt/payload/hosttests/*; do
+		[ -x "$t" ] || continue
+		found=1
+		say "=== $(basename "$t") ==="
+		# Unbuffered through sed so a test that wedges still shows
+		# what it managed to print.
+		timeout -k 5 300 "$t" 2>&1 | sed "s/^/H: /"
+		r=${PIPESTATUS[0]}
+		say "$(basename "$t") exited $r"
+		[ "$r" = 0 ] || rc=1
+	done
+	if [ "$found" = 0 ]; then
+		say "no host tests in the payload"
+		echo "PVMTEST-RESULT: fail stage=hosttests reason=no-tests"
+	elif [ "$rc" = 0 ]; then
+		echo "PVMTEST-RESULT: ok stage=hosttests"
+	else
+		echo "PVMTEST-RESULT: fail stage=hosttests"
+	fi
+	dmesg | tail -60 | sed 's/^/L1: dmesg: /'
+	poweroff -f
 fi
 
 say "qemu: $(qemu-system-x86_64 -version 2>&1 | head -1)"

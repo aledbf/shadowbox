@@ -24,6 +24,10 @@ trap 'rm -rf "$payload"' EXIT
 cp "$OUT/images/guest-vmlinux" "$OUT/images/initrd.cpio.gz" "$payload/"
 install -m 0755 "$TESTBED/scripts/l1-agent.sh" "$payload/agent.sh"
 
+# The host-side tests, when there are any.  They run in L1 against the
+# loaded vendor module; nothing about them needs the guest.
+[ -d "$OUT/hosttests" ] && cp -r "$OUT/hosttests" "$payload/hosttests"
+
 # The KVM modules travel with the payload rather than in the image: the
 # rootfs is bootstrapped once, and the kernel's version string -- and so
 # the path modprobe would look under -- changes with every commit.
@@ -85,6 +89,20 @@ fi
 
 sanitized=0
 "$TESTBED/scripts/sanitize-log.sh" -q "$log_file" || sanitized=$?
+
+# The host-side suite never boots a guest, so its result line is the
+# agent's own rather than one forwarded from the guest.
+if [ "$suite" = hosttests ]; then
+	if grep -q '^PVMTEST-RESULT: ok stage=hosttests' "$log_file"; then
+		log "host tests: $(grep -m1 'PVMHOSTTEST-RESULT' "$log_file" |
+			sed 's/.*PVMHOSTTEST/PVMHOSTTEST/' || echo passed)"
+		[ "$sanitized" = 0 ] || die "the host tests passed, but the L1 kernel log did not"
+		exit 0
+	fi
+	warn "host tests did not pass:"
+	grep -E '^H: (not ok|Bail out)' "$log_file" >&2 || tail -40 "$log_file" >&2
+	exit 1
+fi
 
 # The agent tags each guest's output with the machine type it booted, so
 # the prefix is "G[q35]:" rather than "G:".
