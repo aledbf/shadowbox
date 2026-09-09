@@ -10,7 +10,8 @@
 source "$(dirname "$0")/lib.sh"
 check_build_deps
 
-role="${1:?usage: build-kernel.sh {guest|host}}"
+role="${1-}"
+[ -n "$role" ] || die "usage: build-kernel.sh guest|host"
 case "$role" in guest|host) ;; *) die "unknown role: $role" ;; esac
 
 B="$OUT/build-$role"
