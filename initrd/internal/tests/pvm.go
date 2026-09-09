@@ -26,7 +26,8 @@ func registerPVM(h *harness.Harness) {
 				return err
 			}
 			if base == 0 {
-				return fmt.Errorf("kallsyms returned 0 -- kptr_restrict?")
+				return fmt.Errorf("kallsyms gave 0 for _text: kptr_restrict is set, " +
+					"or this is not running as root")
 			}
 			t.Logf("_text = 0x%016x", base)
 			switch {
@@ -76,11 +77,31 @@ func registerPVM(h *harness.Harness) {
 			}
 			var code, data bool
 			for _, line := range strings.Split(string(b), "\n") {
+				if !strings.Contains(line, "Kernel code") &&
+					!strings.Contains(line, "Kernel data") {
+					continue
+				}
+				lo, hi, ok := strings.Cut(strings.Fields(line)[0], "-")
+				if !ok {
+					return fmt.Errorf("unparsable iomem line: %q", line)
+				}
+				var a, z uint64
+				fmt.Sscanf(lo, "%x", &a)
+				fmt.Sscanf(hi, "%x", &z)
+				// An all-zero range is what a restricted /proc/iomem
+				// looks like, and it would pass a mere presence check
+				// while saying nothing at all.
+				if z == 0 {
+					return fmt.Errorf("iomem range is zeroed -- not running as root, "+
+						"or kptr_restrict is set: %q", strings.TrimSpace(line))
+				}
+				if z <= a {
+					return fmt.Errorf("empty or inverted kernel range: %q", line)
+				}
+				t.Logf("iomem: %s", strings.TrimSpace(line))
 				if strings.Contains(line, "Kernel code") {
 					code = true
-					t.Logf("iomem: %s", strings.TrimSpace(line))
-				}
-				if strings.Contains(line, "Kernel data") {
+				} else {
 					data = true
 				}
 			}

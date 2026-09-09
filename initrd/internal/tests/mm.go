@@ -132,6 +132,7 @@ func registerMM(h *harness.Harness) {
 				return err
 			}
 			var n int
+			var vsyscall bool
 			for _, line := range strings.Split(string(b), "\n") {
 				if line == "" {
 					continue
@@ -147,14 +148,18 @@ func registerMM(h *harness.Harness) {
 				if z <= a {
 					return fmt.Errorf("empty or inverted mapping: %q", line)
 				}
-				// User space must stay under the canonical hole.  A PVM
-				// guest's user range is narrower still, but the kernel
-				// picks it, so only the outer bound is checked here.
-				if z > 0x00007fffffffffff+1 {
+				// User space must stay under the canonical hole, with
+				// one exception: the vsyscall page is mapped at
+				// 0xffffffffff600000 and is user-executable by design.
+				// PVM emulates it, so it must still be here.
+				if z > 0x00007fffffffffff+1 && !strings.Contains(line, "[vsyscall]") {
 					return fmt.Errorf("user mapping above the canonical split: %q", line)
 				}
+				if strings.Contains(line, "[vsyscall]") {
+					vsyscall = true
+				}
 			}
-			t.Logf("%d mappings", n)
+			t.Logf("%d mappings, vsyscall page present: %v", n, vsyscall)
 			return nil
 		},
 	})

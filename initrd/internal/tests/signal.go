@@ -40,35 +40,35 @@ func registerSignal(h *harness.Harness) {
 
 	// Many signals in a row: each one is an entry and a return, so this
 	// is the cheapest way to put pressure on that path.
+	//
+	// Sent and awaited one at a time on purpose.  Firing them as fast as
+	// possible and counting what arrives measures Go's signal channel
+	// coalescing, not the kernel: os/signal drops on a full buffer by
+	// design, so that version failed here with nothing wrong underneath.
 	h.Add(harness.Case{
-		Name:   "signal/storm",
-		Suites: []string{harness.Core},
+		Name:    "signal/storm",
+		Suites:  []string{harness.Core},
+		Timeout: 120 * 1e9,
 		Fn: func(t *harness.T) error {
 			const n = 20000
-			ch := make(chan os.Signal, 64)
+			ch := make(chan os.Signal, 1)
 			signal.Notify(ch, syscall.SIGUSR2)
 			defer signal.Stop(ch)
 
-			var got int
-			done := make(chan struct{})
-			go func() {
-				for range ch {
-					got++
-					if got >= n/2 {
-						close(done)
-						return
-					}
-				}
-			}()
+			start := time.Now()
 			for i := 0; i < n; i++ {
-				_ = syscall.Kill(os.Getpid(), syscall.SIGUSR2)
+				if err := syscall.Kill(os.Getpid(), syscall.SIGUSR2); err != nil {
+					return fmt.Errorf("kill on iteration %d: %w", i, err)
+				}
+				select {
+				case <-ch:
+				case <-time.After(5 * time.Second):
+					return fmt.Errorf("signal %d of %d never arrived", i, n)
+				}
 			}
-			select {
-			case <-done:
-			case <-time.After(20 * time.Second):
-				return fmt.Errorf("only %d of %d signals arrived", got, n)
-			}
-			t.Logf("delivered at least %d signals", got)
+			d := time.Since(start)
+			t.Logf("%d signal round trips in %s (%s each)", n,
+				d.Round(time.Millisecond), (d / n).Round(time.Nanosecond))
 			return nil
 		},
 	})

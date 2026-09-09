@@ -42,7 +42,19 @@ make -C "$KSRC" O="$B" -j"$JOBS"
 
 mkdir -p "$OUT/images"
 cp "$B/arch/x86/boot/bzImage" "$OUT/images/$role-bzImage"
-cp "$B/vmlinux"               "$OUT/images/$role-vmlinux"
+
+# Two copies of the ELF image.  The full one carries the debug info and is
+# what to point a debugger at; the one qemu boots has it stripped, because
+# with CONFIG_DEBUG_INFO the guest vmlinux is around 450MB and every boot
+# would read all of it.  --strip-debug leaves the Xen ELF notes alone, and
+# XEN_ELFNOTE_PHYS32_ENTRY is how qemu -kernel finds pvh_start_xen(), so
+# that is checked rather than assumed.
+cp "$B/vmlinux" "$OUT/images/$role-vmlinux.debug"
+objcopy --strip-debug "$B/vmlinux" "$OUT/images/$role-vmlinux"
+if [ "$role" = guest ]; then
+	readelf -n "$OUT/images/$role-vmlinux" | grep -q '0x00000012' ||
+		die "the stripped guest image lost XEN_ELFNOTE_PHYS32_ENTRY"
+fi
 
 if [ "$role" = host ]; then
 	# L1 needs modules on its root filesystem.
