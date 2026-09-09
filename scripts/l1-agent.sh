@@ -134,6 +134,8 @@ echo 1 > /proc/sys/kernel/print-fatal-signals 2>/dev/null
 # This is the whole point of the pvm_trace.h port: "HYPERCALL" and
 # "SYSCALL" as bare totals do not say where the time goes.
 PERF_PREFIX=""
+# The payload carries the libraries L1 itself does not have.
+export LD_LIBRARY_PATH=/mnt/payload${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 if [ "$SUITE" = perf ] && [ -x /mnt/payload/perf ]; then
 	# "perf kvm stat" is compiled out entirely without libtraceevent, and
 	# a perf built that way answers the subcommand with its own usage
@@ -141,6 +143,9 @@ if [ "$SUITE" = perf ] && [ -x /mnt/payload/perf ]; then
 	# Ask first.
 	if /mnt/payload/perf kvm stat record -a -- true >/dev/null 2>&1; then
 		say "recording kvm exits with perf"
+		# perf writes perf.data.kvm into the current directory, and the
+		# unit starts in "/", which is not somewhere to leave files.
+		cd /tmp || exit 1
 		PERF_PREFIX="/mnt/payload/perf kvm stat record -a --"
 	else
 		say "perf has no working 'kvm stat' (built without libtraceevent?)"
@@ -149,10 +154,19 @@ fi
 
 run_guest q35 -machine q35,accel=kvm
 
-if [ -n "$PERF_PREFIX" ] && [ -s perf.data.kvm ]; then
-	say "--- kvm exits by reason ---"
-	/mnt/payload/perf kvm stat report -i perf.data.kvm 2>&1 |
-		head -40 | sed 's/^/L1: perf: /'
+if [ -n "$PERF_PREFIX" ]; then
+	# The name depends on whether perf recorded host, guest or both:
+	# get_filename_for_perf_kvm() picks between .host, .guest and .kvm.
+	for f in /tmp/perf.data.guest /tmp/perf.data.kvm /tmp/perf.data.host; do
+		[ -s "$f" ] && data="$f" && break
+	done
+	if [ -n "${data:-}" ]; then
+		say "--- kvm exits by reason ($(basename "$data")) ---"
+		/mnt/payload/perf kvm -i "$data" stat report --stdio 2>&1 |
+			head -45 | sed 's/^/L1: perf: /'
+	else
+		say "perf produced no data file"
+	fi
 fi
 
 if [ -d "$T" ]; then

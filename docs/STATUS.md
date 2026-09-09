@@ -86,12 +86,59 @@ rather than nesting EPT. It loses on fork+exec (3.4x), which is address
 spaces being created and torn down, the most expensive thing a shadow
 MMU does.
 
-The syscall number is the one to look at next. PVM's premise is that a
-guest syscall is a direct user-to-supervisor switch that never leaves the
-guest, so 206ns against 62ns is three times more than that premise
-allows. Either the direct switch is being inhibited and every syscall is
-taking a full exit to the PVM host, or the switcher's path is costing far
-more than it should. Nothing here has been profiled yet.
+### Where the time actually goes
+
+`perf kvm stat` over a full perf-suite run under PVM, with the exit
+reasons the pvm_trace.h port added:
+
+```
+VM-EXIT                Samples  Samples%   Time%    Avg time
+PF excp                 351735    67.35%   24.66%     2.87us
+GP excp                  90188    17.27%   12.94%     5.87us
+HC_TLB_INVLPG            45603     8.73%    1.25%     1.12us
+INTERRUPT                12317     2.36%    0.49%     1.62us
+HC_IRQ_HALT               8014     1.53%   58.39%   298.13us
+HC_WRMSR                  5918     1.13%    0.27%     1.89us
+HC_LOAD_PGTBL             2906     0.56%    1.44%    20.33us
+HC_IRQ_WIN                2274     0.44%    0.07%     1.31us
+ERETU                     1585     0.30%    0.35%     8.92us
+HC_LOAD_GS                1208     0.23%    0.03%     1.15us
+HC_RDMSR                   268     0.05%    0.01%     1.77us
+HC_TLB_FLUSH_CURRENT        211     0.04%    0.10%    19.95us
+HC_TLB_FLUSH                33     0.01%    0.00%     2.07us
+```
+
+**There is no SYSCALL row.** Not a single guest syscall reached the host
+across 2 million `getpid()` calls, so the switcher's direct
+user-to-supervisor switch works exactly as designed. The guess above --
+that the direct switch was inhibited and every syscall was taking a full
+exit -- was wrong. The 206ns is the switcher's own path: about 144ns more
+than a bare `syscall`/`sysret`, spent saving and restoring state through
+the PVCS. That is the price of the design, not a bug in it.
+
+HC_IRQ_HALT dominates *Time%* and should be read as the guest being idle,
+not as cost: the host is waiting for an interrupt to arrive.
+
+Discounting it, the real distribution is:
+
+- **PF excp**, 67% of exits and a quarter of the time. The shadow MMU,
+  and each one is cheap at 2.87us. This is the tax PVM chooses to pay
+  in exchange for not needing EPT, and the perf table shows it winning
+  that trade against nested KVM.
+- **GP excp**, 90188 of them at 5.87us each -- around 13% of all the time
+  spent. Every privileged instruction the guest executes that has no
+  paravirt hook traps as #GP and goes through the host's x86 emulator.
+  Some of these are already hypercalls (HC_RDMSR, HC_WRMSR are right
+  there in the table), so the ones left are worth identifying by
+  instruction. **This is the first optimisation target**, and it is the
+  cheapest kind: each one converted to a hypercall or a pv_op is 5.87us
+  saved, with no design change.
+- **HC_LOAD_PGTBL** at 20.33us is the expensive hypercall, and it is what
+  makes fork+exec 3.4x. Address space creation is the shadow MMU's worst
+  case.
+
+Exactly one exit came back as unclassified `HYPERCALL`, so the mapping
+covers essentially everything the guest asks for.
 
 These numbers are all under nesting: the PVM host itself runs in a VM, so
 its shadow page-table walks are virtualised too. On bare metal the

@@ -31,8 +31,18 @@ find "$OUT/modules-host" -name 'kvm*.ko*' -exec cp {} "$payload/" \; 2>/dev/null
 
 # perf, if one has been built against this tree.  L1's own distro perf
 # would not know the PVM exit reasons.
-PERF="${PERF:-/home/aledbf/Trabajo/github/build-perf/perf}"
-[ -x "$PERF" ] && install -m 0755 "$PERF" "$payload/perf"
+# A lean perf: "perf kvm stat" needs libtraceevent, and libdw makes its
+# symbols readable, but the full-featured build drags in python, slang,
+# capstone and curl, none of which a minbase L1 has.
+PERF="${PERF:-$TESTBED/../build-perf-lean/perf}"
+if [ -x "$PERF" ]; then
+	install -m 0755 "$PERF" "$payload/perf"
+	# The two libraries L1 does not carry, alongside it.
+	for lib in libtraceevent.so.1 libdw.so.1; do
+		src=$(ldconfig -p | awk -v n="$lib" '$1==n{print $NF; exit}')
+		[ -n "$src" ] && cp "$src" "$payload/"
+	done
+fi
 
 mkdir -p "$OUT/logs"
 log_file="$OUT/logs/l1-$suite${2:+-$vendor}.log"

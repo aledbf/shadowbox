@@ -52,11 +52,16 @@ have_lib slang.h                  libslang2-dev \
 	"perf report TUI"
 # python3-config can be installed while the headers it points at are not,
 # which perf only discovers most of the way through a build.
-if python3-config --includes 2>/dev/null | tr ' ' '\n' | sed -n 's/^-I//p' |
-		while read -r d; do [ -f "$d/Python.h" ] && exit 0; done; then
-	printf '  \033[33mmiss\033[0m %-24s %s\n' python3-dev "perf jevents and scripting"
-else
+# The while loop runs in a subshell, so a plain "exit 0" inside it reports
+# the opposite of what it found.  Collect first, then decide.
+py_ok=no
+for d in $(python3-config --includes 2>/dev/null | tr ' ' '\n' | sed -n 's/^-I//p'); do
+	[ -f "$d/Python.h" ] && py_ok=yes
+done
+if [ "$py_ok" = yes ]; then
 	printf '  \033[32mok\033[0m   %-24s %s\n' python3-dev "perf jevents and scripting"
+else
+	printf '  \033[33mmiss\033[0m %-24s %s\n' python3-dev "perf jevents and scripting"
 fi
 
 # Optional: report, but do not fail the check on them.
