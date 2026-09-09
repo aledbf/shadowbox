@@ -344,32 +344,41 @@ three things at once — the host's, the guest's architectural one, and the
 zero it forces for the duration of the guest — so there is no guest PKRU
 to advertise.
 
-The comment's performance claim was correct, and the cost is not small.
-Medians of five runs each, PVM in L1, 2 vCPUs, same machine, the only
-difference being the two `kvm_cpu_cap_*` lines:
+**The cost is not currently measurable here.** An earlier version of this
+section reported it as +28% on page faults, +31% on parallel fork and
++58% on the parallel page cycle, from medians of five runs on each side.
+Those numbers do not survive scrutiny and are withdrawn.
 
-```
-metric                              PKU exposed   PKU hidden    delta
-perf/syscall.ns_per_getpid                205.3        204.7    -0.3%
-perf/context-switch.ns_per_roundtrip      456.0        486.5    +6.7%
-perf/fork-exec.us_per_fork_exec          2958.0       3170.0    +7.2%
-perf/page-fault.ns_per_fault            11590.0      14810.0   +27.8%
-perf/parallel-fork.us_per_fork_exec      1047.0       1377.0   +31.5%
-perf/parallel-fault.ns_per_page_cycle    2636.0       4170.0   +58.2%
-```
+What went wrong is worth keeping, because it applies to every performance
+claim this testbed makes. Each run boots a fresh L1, and there are two
+separate sources of variation:
 
-Read that with the caveat that makes it an upper bound rather than the
-number a POC would see. **This testbed amplifies exactly this cost.** The
-PVM host runs as a guest of L0, so every `xsetbv` is a VM exit to L0; on
-bare metal it is a serializing instruction and nothing more. The syscall
-row is the control: the switcher's direct syscall path never touches
-XCR0, and it did not move.
+- *Within* a sweep of five runs, most metrics vary by 4-6%. But
+  `perf/context-switch` varies by **116%** — it is not a usable
+  measurement as it stands, and a single outlier in it once produced an
+  apparent +91% effect that vanished on the next sweep.
+- *Between* sweeps of **the same build**, an hour apart, `page-fault`
+  read 14810, then 11280, then 10020 ns — a spread of nearly 50%,
+  swamping every delta above.
 
-So the honest reading is: correctness is not negotiable and the feature
-stays hidden, the real cost on bare metal is unmeasured and is the thing
-to measure next, and the way to get the performance back is to finish
-separating the three PKRU users rather than to advertise state that is
-not kept.
+The second one is the killer, and the original sweep ran all five runs of
+one build and then all five of the other, so that drift landed entirely
+on one side. `perf-matrix.sh` now reports the within-sweep spread next to
+every median, interleaves vendors so both see the same drift, and refuses
+to call a delta a regression unless it also lands outside the range the
+baseline's own runs covered.
+
+What is still true, and rests on the code rather than on these numbers:
+exposing PKU keeps the guest's XCR0 equal to the host's and so avoids an
+XCR0 switch on every entry and exit, and in this testbed each such switch
+is a VM exit to L0 because the PVM host is itself a guest. So there is a
+real cost and this configuration exaggerates it. How large it is, here or
+on bare metal, is unmeasured.
+
+The conclusion does not depend on the number: correctness is not
+negotiable, the feature stays hidden, and the way to get the performance
+back is to finish separating the three PKRU users rather than to
+advertise state that is not kept.
 
 ## Known gaps in the port
 
