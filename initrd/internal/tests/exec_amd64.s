@@ -26,3 +26,20 @@ TEXT ·readAddr(SB), NOSPLIT, $0-9
 	MOVBLZX	(AX), BX
 	MOVB	BX, ret+8(FP)
 	RET
+
+// func cpuidRaw(leaf, sub uint32) (eax, ebx, ecx, edx uint32)
+//
+// CPUID as the hardware answers it to this privilege level.  Under PVM
+// that is deliberately not the same thing as the CPUID the guest kernel
+// sees: the kernel's reads go through pv_ops.cpu.cpuid and the synthetic
+// "invlpg; cpuid" sequence, which the hypervisor emulates, while a plain
+// CPUID at CPL3 is not trapped at all.
+TEXT ·cpuidRaw(SB), NOSPLIT, $0-24
+	MOVL	leaf+0(FP), AX
+	MOVL	sub+4(FP), CX
+	CPUID
+	MOVL	AX, eax+8(FP)
+	MOVL	BX, ebx+12(FP)
+	MOVL	CX, ecx+16(FP)
+	MOVL	DX, edx+20(FP)
+	RET
