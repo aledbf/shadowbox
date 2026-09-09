@@ -39,10 +39,14 @@ cmdline="console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 panic=-1"
 cmdline="$cmdline oops=panic no_timer_check"
 cmdline="$cmdline pvmtest.suite=$suite pvmtest.tag=$tag"
 
+# Same reason as run-l1.sh: a measured run must not land on a different
+# class of core than the one it is compared against.
+PIN="$(pin_prefix)"
+
 log "booting $tag  ($(basename "$kernel"))"
 set +e
 timeout --foreground -k 5 "$BOOT_TIMEOUT" \
-	"$QEMU" \
+	$PIN "$QEMU" \
 	-machine q35,accel=kvm \
 	-cpu host \
 	-smp "$GUEST_CPUS" -m "$GUEST_MEM" \

@@ -9,6 +9,9 @@ const (
 	sysSetitimer = 38
 
 	itimerReal = 0
+
+	// MADV_NOHUGEPAGE, which Go's syscall package does not name.
+	madvNoHugepage = 15
 )
 
 type timeval struct{ Sec, Usec int64 }

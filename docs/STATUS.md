@@ -380,6 +380,54 @@ negotiable, the feature stays hidden, and the way to get the performance
 back is to finish separating the three PKRU users rather than to
 advertise state that is not kept.
 
+## What the measurements can and cannot resolve
+
+Three things were wrong at once, and finding them cost a withdrawn set of
+numbers. All three are fixed; what is left is a per-metric resolution
+floor that has to be respected.
+
+**The benchmark.** `perf/context-switch` ping-ponged between two
+goroutines over unbuffered channels, which measures the Go scheduler, not
+the kernel: a roundtrip was sometimes a userspace goroutine switch and
+sometimes a futex sleep and wake. It varied by **116%** across five runs
+of the same build, and one outlier invented a 91% regression that did not
+exist. It is now two processes pinned to the same CPU passing a byte
+through a pair of pipes — two real context switches per roundtrip. Note
+the metric changed name to `ns_per_pipe_roundtrip`, and the number is an
+order of magnitude larger than the old one because the old one was
+usually not measuring the kernel at all.
+
+**The core lottery.** This is a hybrid CPU: CPUs 0-11 are P-cores at
+5.2-5.4GHz, 12-19 are E-cores at 4.1GHz. Where the scheduler put qemu's
+threads changed the answer by tens of percent from run to run. Both
+runners now pin to the fastest core type, detected by MAXMHZ rather than
+hardcoded (`PIN_CPUS` overrides, `PIN_CPUS=none` disables).
+
+**Transparent huge pages.** `perf/page-fault` was bimodal: a THP faults
+in 512 base pages at once, so whether the mapping got one changed the
+result by tens of percent. It now asks for `MADV_NOHUGEPAGE` and measures
+base-page faults.
+
+Measured after all three, two sweeps of the same build back to back,
+medians of five runs each:
+
+```
+metric                                     sweep 1   sweep 2   between   within
+perf/context-switch.ns_per_pipe_roundtrip  23200.0   22720.0     -2.1%    6-8%
+perf/fork-exec.us_per_fork_exec             2652.0    2701.0     +1.8%   8-11%
+perf/syscall.ns_per_getpid                   197.9     203.3     +2.7%      8%
+perf/page-fault.ns_per_fault               11800.0   10040.0    -15.0%   8-11%
+```
+
+So: **treat anything under about 10% as noise, and under 15% for
+page-fault.** page-fault is still the least trustworthy metric here and
+something beyond THP is moving it. `perf-matrix.sh` prints the
+within-sweep spread next to every median and will not call a delta a
+regression unless it also lands outside the range the baseline's own runs
+covered, so the tool now refuses to make the claim rather than making it
+wrongly — but a human reading two sweeps still has to apply the floor
+above.
+
 ## Known gaps in the port
 
 - `arch/x86/boot/compressed/` has not been ported, so the bzImage path

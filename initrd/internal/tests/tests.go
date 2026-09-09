@@ -50,6 +50,8 @@ func RunVictim(args []string) {
 		victimExecPage(args[1])
 	case "victim-readaddr":
 		victimReadAddr(args[1])
+	case "victim-pingpong":
+		victimPingPong(args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown victim mode: %s\n", args[0])
 		os.Exit(127)

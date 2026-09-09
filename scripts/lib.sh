@@ -22,6 +22,63 @@ L1_MEM="${L1_MEM:-8G}"
 
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-180}"
 
+# Which CPUs to run a measured VM on.
+#
+# A hybrid CPU is the single largest source of run-to-run noise here: this
+# machine has six P-cores at 5.2-5.4GHz and eight E-cores at 4.1GHz, and
+# where the scheduler happens to put qemu's threads changes the answer by
+# tens of percent.  Two sweeps of the same build read 14810 and 10020 ns
+# on the same benchmark before this existed.
+#
+# So pin to the fastest set of CPUs, detected rather than hardcoded:
+# whichever share the highest MAXMHZ.  On a uniform machine that is all of
+# them and the pinning is a no-op.
+#
+#   PIN_CPUS=0-11   use exactly this list
+#   PIN_CPUS=none   do not pin at all
+pin_cpu_list() {
+	if [ "${PIN_CPUS:-}" = none ]; then
+		return
+	fi
+	if [ -n "${PIN_CPUS:-}" ]; then
+		printf '%s' "$PIN_CPUS"
+		return
+	fi
+	command -v lscpu >/dev/null 2>&1 || return
+	lscpu -e=CPU,MAXMHZ 2>/dev/null | awk '
+		NR > 1 && $2 != "" {
+			mhz = $2 + 0
+			cpu[NR] = $1
+			f[NR] = mhz
+			if (mhz > top) top = mhz
+		}
+		END {
+			if (top == 0) exit
+			sep = ""
+			n = 0
+			# 0.9 separates core *types*, not turbo bins: on this
+			# machine the E-cores are at 76% of the top P-core and
+			# the slower P-cores at 96%, so anything in between
+			# would keep two cores and drop ten.
+			for (i in f)
+				if (f[i] >= top * 0.9) { list = list sep cpu[i]; sep = ","; n++ }
+			# All of them means there is nothing to choose between.
+			if (n > 1 && n < NR - 1) print list
+		}'
+}
+
+# taskset prefix for a measured VM, empty when there is nothing to pin to.
+pin_prefix() {
+	local cpus
+	cpus=$(pin_cpu_list)
+	[ -n "$cpus" ] || return
+	command -v taskset >/dev/null 2>&1 || {
+		warn "taskset missing: measurements will drift across core types"
+		return
+	}
+	printf 'taskset -c %s' "$cpus"
+}
+
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[1;33m warn\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mfail\033[0m %s\n' "$*" >&2; exit 1; }

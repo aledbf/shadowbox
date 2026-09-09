@@ -3,8 +3,11 @@ package tests
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"syscall"
 )
 
@@ -60,5 +63,73 @@ func victimSegv() {
 func victimLoop() {
 	for {
 		syscall.Getpid()
+	}
+}
+
+// pipes is a plain unidirectional pipe with both ends kept, so the caller
+// can hand one end to a child and close both later.
+type pipes struct{ r, w *os.File }
+
+func pipePair() (*pipes, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	return &pipes{r: r, w: w}, nil
+}
+
+func (p *pipes) close() {
+	_ = p.r.Close()
+	_ = p.w.Close()
+}
+
+// startVictimPinned re-executes this binary in a victim mode with the
+// given files as fd 3, 4, ... and pins it to one CPU.
+//
+// The pinning is done by the child itself rather than here: taskset is not
+// in the initrd, and setting affinity on the parent before fork would pin
+// the parent too.
+func startVictimPinned(mode string, extra []*os.File, cpu int) (*exec.Cmd, error) {
+	self, err := os.Executable()
+	if err != nil {
+		self = "/init"
+	}
+	cmd := exec.Command(self, mode, strconv.Itoa(cpu))
+	cmd.ExtraFiles = extra
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("starting %s: %w", mode, err)
+	}
+	return cmd, nil
+}
+
+// victimPingPong echoes single bytes from fd 3 to fd 4 forever, pinned to
+// the CPU named on the command line.  The parent pins itself to the same
+// one, so every exchange costs a real context switch.
+func victimPingPong(cpuArg string) {
+	cpu, err := strconv.Atoi(cpuArg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "victim: bad cpu %q\n", cpuArg)
+		os.Exit(3)
+	}
+	runtime.LockOSThread()
+	var set cpuSet
+	set.set(cpu)
+	if err := schedSetaffinity(0, &set); err != nil {
+		fmt.Fprintf(os.Stderr, "victim: pinning to cpu %d: %v\n", cpu, err)
+		os.Exit(3)
+	}
+
+	in := os.NewFile(3, "ping")
+	out := os.NewFile(4, "pong")
+	buf := []byte{0}
+	for {
+		if _, err := io.ReadFull(in, buf); err != nil {
+			os.Exit(0) // the parent finished and closed the pipe
+		}
+		if _, err := out.Write(buf); err != nil {
+			os.Exit(0)
+		}
 	}
 }

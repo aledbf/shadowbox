@@ -58,6 +58,11 @@ mkdir -p "$OUT/logs"
 # soak" -- keep every iteration's log instead of overwriting one.
 log_file="$OUT/logs/l1-$suite${2:+-$vendor}${LOG_SUFFIX:+-$LOG_SUFFIX}.log"
 
+# Pinned, so a measured run cannot land on a different class of core than
+# the run it is being compared with.  See pin_cpu_list() in lib.sh.
+PIN="$(pin_prefix)"
+[ -n "$PIN" ] && log "pinning L1 to cpus $(pin_cpu_list)"
+
 log "booting L1 (KVM vendor=$vendor), suite=$suite"
 set +e
 case "$suite" in
@@ -66,7 +71,7 @@ full|perf|all) l1_timeout=2400 ;;
 esac
 
 timeout --foreground -k 5 "$l1_timeout" \
-	"$QEMU" \
+	$PIN "$QEMU" \
 	-machine q35,accel=kvm \
 	-cpu host \
 	-smp "$L1_CPUS" -m "$L1_MEM" \
