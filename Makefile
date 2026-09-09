@@ -11,6 +11,8 @@
 # make security negative tests -- on plain KVM and under PVM -- + sanitize
 # make sanitize scan every log kept under out/logs for kernel complaints
 # make soak     stage2 N times over, then sanitize the lot
+# make perf-matrix   perf across 1/2/8/16 vCPUs, both vendors, medians
+# make perf-baseline record the last matrix run as this machine's baseline
 
 SHELL := /bin/bash
 S     := scripts
@@ -20,7 +22,8 @@ export KSRC
 
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
-        host-sanitize-log security soak clean distclean
+        host-sanitize-log security soak perf-matrix perf-baseline \
+        clean distclean
 
 # How many times "make soak" repeats stage 2.
 SOAK ?= 10
@@ -114,6 +117,20 @@ soak: host-kernel check-rootfs initrd guest-kernel
 		LOG_SUFFIX=soak$$i $(S)/run-l1.sh default pvm; \
 	done
 	@$(S)/sanitize-log.sh
+
+# The full default sweep is 40 boots of the perf suite.  Narrow it while
+# iterating:  make perf-matrix MATRIX_CPUS="2" MATRIX_REPS=2
+perf-matrix: guest-kernel initrd host-kernel check-rootfs
+	@$(S)/perf-matrix.sh
+
+# Promote the most recent sweep on this machine to its baseline.
+perf-baseline:
+	@set -e; \
+	f=$$(ls -t out/perf/*.tsv 2>/dev/null | head -1); \
+	test -n "$$f" || { echo "no sweep to promote -- run 'make perf-matrix'" >&2; exit 1; }; \
+	mkdir -p baselines; \
+	cp "$$f" "baselines/$$(basename $$f)"; \
+	echo "baseline recorded: baselines/$$(basename $$f)"
 
 clean:
 	rm -rf out/logs out/initrd-root out/payload
