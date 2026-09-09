@@ -8,6 +8,12 @@
 # apart in a single log.
 
 set -u
+
+# Straight to the console.  Routed through journald, the console output is
+# rate limited, and what gets dropped is the end -- which is where the
+# diagnostics are.
+exec >/dev/console 2>&1
+
 say() { echo "L1: $*"; }
 
 say "kernel: $(uname -r)"
@@ -98,29 +104,34 @@ run_guest() { # $1=tag, rest=machine args
 
 run_guest q35 -machine q35,accel=kvm
 
-# The decisive line, printed immediately and on its own: do_pvm_event()
-# warns exactly once per rate-limit window when the VMM injects an event
-# while the vCPU is still in the non-PVM bootstrap mode.
-say "--- did the host complain about injection? ---"
-dmesg | grep -i "non-PVM mode" | tail -3 | sed 's/^/L1: warn: /' ||
-	say "no 'non-PVM mode' warning in dmesg"
-
-say "--- host dmesg after the guest run ---"
-dmesg | tail -45 | sed 's/^/L1: post: /' 
-qrc=$?
-
-# Where the host says why.  A guest that dies before its first printk
-# leaves nothing of its own behind, so the hypervisor's view is all there
-# is, and qemu's cpu_reset trace says what state it died in.
 if [ -d "$T" ]; then
 	echo 0 > "$T/tracing_on" 2>/dev/null
-	say "--- last kvm tracepoints ---"
-	tail -50 "$T/trace" | sed 's/^/L1: kvm: /'
 fi
 
-say "--- host dmesg since the guest started ---"
-dmesg | tail -40 | sed 's/^/L1: post: /'
+# do_pvm_event() warns once per rate-limit window when the VMM injects an
+# event while the vCPU is still in the non-PVM bootstrap mode.  Its
+# presence or absence says whether that path was reached at all.
+say "--- injection warnings ---"
+if ! dmesg | grep -i "non-PVM mode" | tail -3 | grep . | sed 's/^/L1: warn: /'; then
+	say "no 'non-PVM mode' warning"
+fi
 
+# The backtrace is the thing.  Print the region around it and nothing
+# else: a full dmesg dump is long enough that the tail of it is what gets
+# lost, and the tail is the part that matters.
+say "--- kernel complaints from the guest run ---"
+if ! dmesg | sed -n '/scheduling while atomic\|BUG:\|general protection fault\|unable to handle/,+28p' \
+		| head -60 | grep . | sed 's/^/L1: bug: /'; then
+	say "no BUG, GPF or fault in dmesg"
+fi
 
-say "guest exited"
+say "--- last 10 kvm events that are not instruction emulation ---"
+if [ -d "$T" ]; then
+	grep -vE "kvm_emulate_insn|kvm_unmap_hva_range" "$T/trace" | tail -10 |
+		sed 's/^/L1: kvm: /'
+	say "--- last 4 instructions emulated ---"
+	tail -4 "$T/trace" | sed 's/^/L1: kvm: /'
+fi
+
+say "done"
 poweroff -f
