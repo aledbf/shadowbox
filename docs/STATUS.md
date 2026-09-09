@@ -175,27 +175,38 @@ What is left is real:
 ```
 
 and the `kvm_msr` tracepoint names it: **MSR 0x6e0, `MSR_IA32_TSC_DEADLINE`,
-10047 writes.** `lapic_next_deadline()` arms the timer with
-`native_wrmsrq()`, which deliberately bypasses paravirt -- correct on real
+10047 writes.** `lapic_next_deadline()` armed the timer with
+`native_wrmsrq()`, which bypasses paravirt on purpose -- right on real
 hardware, but on a PVM guest it is a raw `wrmsr` at CPL3, so a #GP and a
-trip through the host's x86 emulator at 4.56us, against 1.61us for the
+trip through the host's x86 emulator at 4.56us against 1.61us for the
 hypercall.
 
-Changing that one line to `wrmsrq()` was measured: `wrmsr` emulations fell
-from 12718 to 488, `HC_WRMSR` rose from 5262 to 16418, and #GP exits fell
-35%. About 3us saved per timer arm, roughly 34ms of host CPU over the run.
+Fixed, and the fix is free for everyone else:
 
-**That fix is not the one to make, though.** `paravirt_write_msr()` is a
-`PVOP_VCALL2`, a real indirect call rather than an alternative patched
-inline, so routing the deadline write through it would cost every x86
-kernel an indirect call on every timer arm. That is precisely why upstream
-writes it natively. A PVM-shaped fix installs its own `set_next_event`, or
-uses an ALTERNATIVE so native keeps the bare instruction.
+```
+                    before   after
+wrmsr emulated       12718     541
+MSR 0x6e0 writes     10047       0
+GP excp exits        34625   23030   -33%
+HC_WRMSR exits        5262   17307
+```
 
-And it should be kept in proportion: the guest-visible numbers did not
-move. This benchmark does not stress timers, and run-to-run variance under
-nesting is larger than 34ms. It is host CPU saved, on a path that matters
-more as vCPU count rises, not a number that shows up here.
+The write is now conditional on `cpu_feature_enabled(X86_FEATURE_KVM_PVM_GUEST)`,
+which is an alternative-patched branch, and the feature sits in the
+disabled mask when `!CONFIG_PVM_GUEST`. On a kernel without PVM,
+`lapic_next_deadline()` compiles to the same eleven instructions it did
+before -- checked in the disassembly -- so nothing is paid for this
+anywhere else. Routing it through `wrmsrq()` unconditionally would not
+have been acceptable: `paravirt_write_msr()` is a `PVOP_VCALL2`, a real
+indirect call rather than an alternative patched inline, which is exactly
+why upstream writes it natively.
+
+Keep it in proportion: the guest-visible numbers did not move, and were
+not expected to. This benchmark does not stress timers, and run-to-run
+variance under nesting is larger than the saving. What was bought is host
+CPU -- about 3us per timer arm, and a third of the guest's remaining #GP
+exits -- on a path whose cost rises with vCPU count and with the number of
+guests on the host, neither of which this benchmark varies.
 
 The remaining `in`/`out` are device probing and the result line; `PF excp`
 and `HC_LOAD_PGTBL` are the shadow MMU doing its job, and are inherent.

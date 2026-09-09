@@ -25,6 +25,10 @@ say "cpu: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
 # every commit.  insmod by path sidesteps that entirely.
 VENDOR="$(sed -n 's/.*pvmtest\.vendor=\([^ ]*\).*/\1/p' /proc/cmdline)"
 VENDOR="${VENDOR:-pvm}"
+GUEST_CPUS="$(sed -n 's/.*pvmtest\.guest_cpus=\([^ ]*\).*/\1/p' /proc/cmdline)"
+GUEST_CPUS="${GUEST_CPUS:-2}"
+GUEST_MEM="$(sed -n 's/.*pvmtest\.guest_mem=\([^ ]*\).*/\1/p' /proc/cmdline)"
+GUEST_MEM="${GUEST_MEM:-1G}"
 MOD_ARGS="$(sed -n 's/.*pvmtest\.mod_args=\([^ ]*\).*/\1/p' /proc/cmdline | tr , ' ')"
 case "$VENDOR" in
 pvm)   mod=/mnt/payload/kvm-pvm.ko ;;
@@ -99,7 +103,7 @@ case "$SUITE" in
 full|perf|all) GUEST_TIMEOUT=1800 ;;
 *)          GUEST_TIMEOUT=120 ;;
 esac
-say "guest timeout: ${GUEST_TIMEOUT}s"
+say "guest: ${GUEST_CPUS} vcpus, ${GUEST_MEM}, timeout ${GUEST_TIMEOUT}s"
 
 APPEND="console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=$SUITE pvmtest.tag=$VENDOR-guest"
 if [ "$SUITE" = perf ]; then
@@ -144,7 +148,7 @@ run_guest() { # $1=tag, rest=machine args
 	# themselves several minutes each, and 45s was chosen back when the
 	# guest was dying in under a second.
 	timeout -k 5 "$GUEST_TIMEOUT" $PERF_PREFIX qemu-system-x86_64 "$@" \
-		-cpu host -smp 2 -m 1G \
+		-cpu host -smp "$GUEST_CPUS" -m "$GUEST_MEM" \
 		-kernel /mnt/payload/guest-vmlinux \
 		-initrd /mnt/payload/initrd.cpio.gz \
 		-append "$APPEND" \

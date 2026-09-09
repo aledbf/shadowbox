@@ -28,6 +28,7 @@ func Register(h *harness.Harness) {
 	registerEntry(h)
 	registerStress(h)
 	registerPerf(h)
+	registerParallel(h)
 }
 
 // RunVictim is the entry point for the child processes some tests need:
