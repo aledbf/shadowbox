@@ -101,7 +101,7 @@ run_guest() { # $1=tag, rest=machine args
 	# The bound has to fit the suite: the stress and perf cases allow
 	# themselves several minutes each, and 45s was chosen back when the
 	# guest was dying in under a second.
-	timeout -k 5 "$GUEST_TIMEOUT" qemu-system-x86_64 "$@" \
+	timeout -k 5 "$GUEST_TIMEOUT" $PERF_PREFIX qemu-system-x86_64 "$@" \
 		-cpu host -smp 2 -m 1G \
 		-kernel /mnt/payload/guest-vmlinux \
 		-initrd /mnt/payload/initrd.cpio.gz \
@@ -130,7 +130,30 @@ ulimit -c 0
 echo core > /proc/sys/kernel/core_pattern 2>/dev/null
 echo 1 > /proc/sys/kernel/print-fatal-signals 2>/dev/null
 
+# For the perf suite, count the guest's exits by reason while it runs.
+# This is the whole point of the pvm_trace.h port: "HYPERCALL" and
+# "SYSCALL" as bare totals do not say where the time goes.
+PERF_PREFIX=""
+if [ "$SUITE" = perf ] && [ -x /mnt/payload/perf ]; then
+	# "perf kvm stat" is compiled out entirely without libtraceevent, and
+	# a perf built that way answers the subcommand with its own usage
+	# text -- which, wrapped around qemu, silently costs the whole run.
+	# Ask first.
+	if /mnt/payload/perf kvm stat record -a -- true >/dev/null 2>&1; then
+		say "recording kvm exits with perf"
+		PERF_PREFIX="/mnt/payload/perf kvm stat record -a --"
+	else
+		say "perf has no working 'kvm stat' (built without libtraceevent?)"
+	fi
+fi
+
 run_guest q35 -machine q35,accel=kvm
+
+if [ -n "$PERF_PREFIX" ] && [ -s perf.data.kvm ]; then
+	say "--- kvm exits by reason ---"
+	/mnt/payload/perf kvm stat report -i perf.data.kvm 2>&1 |
+		head -40 | sed 's/^/L1: perf: /'
+fi
 
 if [ -d "$T" ]; then
 	echo 0 > "$T/tracing_on" 2>/dev/null

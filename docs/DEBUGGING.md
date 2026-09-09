@@ -54,3 +54,25 @@ While hunting an early crash it is also worth dropping `panic=-1` and
 `oops=panic` from the guest command line: printk replays its ring buffer
 when a console finally registers, so a guest that survives its first
 oops may hand you the message for free.
+
+## Counting the guest's exits
+
+The kernel side reports PVM exit reasons, and the hypercall number in
+`info2`, so `perf kvm stat` can say what a guest is actually spending its
+exits on. `scripts/l1-agent.sh` wraps the guest in `perf kvm stat record`
+for the `perf` suite and prints the report afterwards.
+
+It needs a perf built against this tree — a distro perf does not know the
+PVM exit reasons — and that perf needs libtraceevent, because
+`perf kvm stat` is compiled out entirely without it:
+
+```
+sudo apt install libtraceevent-dev python3-dev libdw-dev
+make -C tools/perf O=/home/aledbf/Trabajo/github/build-perf -j$(nproc)
+```
+
+`run-l1.sh` picks the binary up from `$PERF`, defaulting to
+`../build-perf/perf`, and ships it on the payload share. The agent checks
+that `perf kvm stat` actually works before using it: a perf built without
+libtraceevent answers the subcommand with its own usage text, which
+wrapped around qemu costs the whole run and says nothing about why.

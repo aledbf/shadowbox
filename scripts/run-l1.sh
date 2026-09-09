@@ -29,6 +29,11 @@ install -m 0755 "$TESTBED/scripts/l1-agent.sh" "$payload/agent.sh"
 # the path modprobe would look under -- changes with every commit.
 find "$OUT/modules-host" -name 'kvm*.ko*' -exec cp {} "$payload/" \; 2>/dev/null || true
 
+# perf, if one has been built against this tree.  L1's own distro perf
+# would not know the PVM exit reasons.
+PERF="${PERF:-/home/aledbf/Trabajo/github/build-perf/perf}"
+[ -x "$PERF" ] && install -m 0755 "$PERF" "$payload/perf"
+
 mkdir -p "$OUT/logs"
 log_file="$OUT/logs/l1-$suite${2:+-$vendor}.log"
 
