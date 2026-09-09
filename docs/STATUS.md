@@ -69,10 +69,10 @@ columns:
 
 ```
 metric                                 KVM (L0)     KVM (L1)     PVM (L1)  PVM/KVM
-perf/context-switch.ns_per_roundtrip        317.9        494.1        433.2    0.88x
-perf/fork-exec.us_per_fork_exec             302.9        645.7       2221.7    3.44x
-perf/page-fault.ns_per_fault                891.5       8849.7       6648.3    0.75x
-perf/syscall.ns_per_getpid                   59.1         62.3        206.0    3.31x
+perf/context-switch.ns_per_roundtrip        422.5        339.8        432.9    1.27x
+perf/fork-exec.us_per_fork_exec             322.2        701.1       2441.9    3.48x
+perf/page-fault.ns_per_fault                869.1      11238.9       8187.5    0.73x
+perf/syscall.ns_per_getpid                   60.2         59.7        199.8    3.35x
 ```
 
 Read the two L1 columns against each other. The L0 column is there to
@@ -81,64 +81,92 @@ guest's page faults go from 891ns to 8850ns once its host is itself a
 guest, because nested EPT has to be walked twice.
 
 PVM beats nested KVM on exactly the axis it claims to: page faults
-(0.75x) and context switches (0.88x), because it shadows page tables
-rather than nesting EPT. It loses on fork+exec (3.4x), which is address
+(0.73x), because it shadows page tables rather than nesting EPT. Context
+switches came out at 0.88x in one run and 1.27x in another, so treat that
+row as noise rather than a result -- the variance under nesting is larger
+than the difference. It loses on fork+exec (3.4x), which is address
 spaces being created and torn down, the most expensive thing a shadow
 MMU does.
 
 ### Where the time actually goes
 
-`perf kvm stat` over a full perf-suite run under PVM, with the exit
-reasons the pvm_trace.h port added:
+`perf kvm stat` over a perf-suite run under PVM, with the exit reasons the
+pvm_trace.h port added and a quiet guest console (see below for why that
+matters):
 
 ```
 VM-EXIT                Samples  Samples%   Time%    Avg time
-PF excp                 351735    67.35%   24.66%     2.87us
-GP excp                  90188    17.27%   12.94%     5.87us
-HC_TLB_INVLPG            45603     8.73%    1.25%     1.12us
-INTERRUPT                12317     2.36%    0.49%     1.62us
-HC_IRQ_HALT               8014     1.53%   58.39%   298.13us
-HC_WRMSR                  5918     1.13%    0.27%     1.89us
-HC_LOAD_PGTBL             2906     0.56%    1.44%    20.33us
-HC_IRQ_WIN                2274     0.44%    0.07%     1.31us
-ERETU                     1585     0.30%    0.35%     8.92us
-HC_LOAD_GS                1208     0.23%    0.03%     1.15us
-HC_RDMSR                   268     0.05%    0.01%     1.77us
-HC_TLB_FLUSH_CURRENT        211     0.04%    0.10%    19.95us
-HC_TLB_FLUSH                33     0.01%    0.00%     2.07us
+PF excp                 356920    75.11%   27.28%     3.07us
+HC_TLB_INVLPG            46964     9.88%    1.24%     1.06us
+GP excp                  34625     7.29%    3.93%     4.56us
+INTERRUPT                15449     3.25%    0.54%     1.41us
+HC_IRQ_HALT               8199     1.73%   64.23%   314.67us
+HC_WRMSR                  5262     1.11%    0.21%     1.61us
+HC_LOAD_PGTBL             2707     0.57%    1.80%    26.69us
+HC_IRQ_WIN                1782     0.38%    0.05%     1.16us
+ERETU                     1548     0.33%    0.66%    17.11us
+HC_LOAD_GS                1209     0.25%    0.03%     1.03us
 ```
 
 **There is no SYSCALL row.** Not a single guest syscall reached the host
-across 2 million `getpid()` calls, so the switcher's direct
-user-to-supervisor switch works exactly as designed. The guess above --
+across two million `getpid()` calls, so the switcher's direct
+user-to-supervisor switch works exactly as designed. The earlier guess --
 that the direct switch was inhibited and every syscall was taking a full
-exit -- was wrong. The 206ns is the switcher's own path: about 144ns more
+exit -- was wrong. The 200ns is the switcher's own path: about 140ns more
 than a bare `syscall`/`sysret`, spent saving and restoring state through
 the PVCS. That is the price of the design, not a bug in it.
 
-HC_IRQ_HALT dominates *Time%* and should be read as the guest being idle,
-not as cost: the host is waiting for an interrupt to arrive.
+`HC_IRQ_HALT` dominates *Time%* and means the guest is idle, not busy.
 
-Discounting it, the real distribution is:
+### The #GP exits are mostly the harness
 
-- **PF excp**, 67% of exits and a quarter of the time. The shadow MMU,
-  and each one is cheap at 2.87us. This is the tax PVM chooses to pay
-  in exchange for not needing EPT, and the perf table shows it winning
-  that trade against nested KVM.
-- **GP excp**, 90188 of them at 5.87us each -- around 13% of all the time
-  spent. Every privileged instruction the guest executes that has no
-  paravirt hook traps as #GP and goes through the host's x86 emulator.
-  Some of these are already hypercalls (HC_RDMSR, HC_WRMSR are right
-  there in the table), so the ones left are worth identifying by
-  instruction. **This is the first optimisation target**, and it is the
-  cheapest kind: each one converted to a hypercall or a pv_op is 5.87us
-  saved, with no design change.
-- **HC_LOAD_PGTBL** at 20.33us is the expensive hypercall, and it is what
-  makes fork+exec 3.4x. Address space creation is the shadow MMU's worst
-  case.
+The first run of this measured 90188 #GP exits at 12.94% of time, and
+breaking them down by instruction -- the `kvm_emulate_insn` tracepoint
+already carries the bytes, so this needed no kernel change -- said:
 
-Exactly one exit came back as unclassified `HYPERCALL`, so the mapping
-covers essentially everything the guest asks for.
+```
+40672  out dx        37749  in dx        12861  wrmsr
+```
+
+Port I/O, 85% of it. That is the 16550 serial console: every character
+costs a poll of the line status register and a write to the transmit
+register, and each is a #GP the host emulates. Booting the guest with
+`quiet loglevel=0` took #GP from 90188 to 34625 and its share of time
+from 12.94% to 3.93%. The perf suite now boots quiet; the harness still
+needs the console for its result line, which is forty lines rather than
+thirty thousand characters.
+
+What is left is real:
+
+```
+12718  wrmsr         11145  out dx        9877  in dx
+```
+
+and the `kvm_msr` tracepoint names it: **MSR 0x6e0, `MSR_IA32_TSC_DEADLINE`,
+10047 writes.** `lapic_next_deadline()` arms the timer with
+`native_wrmsrq()`, which deliberately bypasses paravirt -- correct on real
+hardware, but on a PVM guest it is a raw `wrmsr` at CPL3, so a #GP and a
+trip through the host's x86 emulator at 4.56us, against 1.61us for the
+hypercall.
+
+Changing that one line to `wrmsrq()` was measured: `wrmsr` emulations fell
+from 12718 to 488, `HC_WRMSR` rose from 5262 to 16418, and #GP exits fell
+35%. About 3us saved per timer arm, roughly 34ms of host CPU over the run.
+
+**That fix is not the one to make, though.** `paravirt_write_msr()` is a
+`PVOP_VCALL2`, a real indirect call rather than an alternative patched
+inline, so routing the deadline write through it would cost every x86
+kernel an indirect call on every timer arm. That is precisely why upstream
+writes it natively. A PVM-shaped fix installs its own `set_next_event`, or
+uses an ALTERNATIVE so native keeps the bare instruction.
+
+And it should be kept in proportion: the guest-visible numbers did not
+move. This benchmark does not stress timers, and run-to-run variance under
+nesting is larger than 34ms. It is host CPU saved, on a path that matters
+more as vCPU count rises, not a number that shows up here.
+
+The remaining `in`/`out` are device probing and the result line; `PF excp`
+and `HC_LOAD_PGTBL` are the shadow MMU doing its job, and are inherent.
 
 These numbers are all under nesting: the PVM host itself runs in a VM, so
 its shadow page-table walks are virtualised too. On bare metal the

@@ -65,8 +65,19 @@ T=/sys/kernel/tracing
 if [ -d "$T" ]; then
 	echo 0 > "$T/tracing_on" 2>/dev/null
 	echo > "$T/trace" 2>/dev/null
-	echo 32768 > "$T/buffer_size_kb" 2>/dev/null
-	echo 1 > "$T/events/kvm/enable" 2>/dev/null && say "kvm tracepoints enabled"
+	if [ "$SUITE" = perf ]; then
+		# Just the emulated instructions, with room for a lot of them:
+		# the whole kvm event set would overrun the buffer in seconds
+		# and the opcode histogram is what the perf suite is for.
+		echo 131072 > "$T/buffer_size_kb" 2>/dev/null
+		echo 1 > "$T/events/kvm/kvm_emulate_insn/enable" 2>/dev/null &&
+			say "tracing emulated instructions"
+		echo 1 > "$T/events/kvm/kvm_msr/enable" 2>/dev/null
+	else
+		echo 32768 > "$T/buffer_size_kb" 2>/dev/null
+		echo 1 > "$T/events/kvm/enable" 2>/dev/null &&
+			say "kvm tracepoints enabled"
+	fi
 	echo 1 > "$T/tracing_on" 2>/dev/null
 fi
 
@@ -76,7 +87,19 @@ full|perf|all) GUEST_TIMEOUT=1800 ;;
 esac
 say "guest timeout: ${GUEST_TIMEOUT}s"
 
-APPEND="console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 panic=-1 oops=panic pvmtest.suite=$SUITE pvmtest.tag=$VENDOR-guest"
+APPEND="console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=$SUITE pvmtest.tag=$VENDOR-guest"
+if [ "$SUITE" = perf ]; then
+	# A quiet boot for the perf suite.  The serial console is a 16550:
+	# every character costs a poll of the line status register and a
+	# write to the transmit register, and each of those is a #GP the host
+	# emulates.  A verbose boot puts tens of thousands of those into the
+	# exit histogram and drowns out what the guest actually does.  The
+	# harness still needs the console for its result line, which is
+	# forty-odd lines rather than thirty thousand characters.
+	APPEND="$APPEND quiet loglevel=0"
+else
+	APPEND="$APPEND earlyprintk=serial,ttyS0,115200"
+fi
 # Only a PVM run must have relocated itself; under kvm-intel the same
 # image is an ordinary guest and belongs at the usual address.
 [ "$VENDOR" = pvm ] && APPEND="$APPEND pvmtest.expect=pvm"
@@ -153,6 +176,71 @@ if [ "$SUITE" = perf ] && [ -x /mnt/payload/perf ]; then
 fi
 
 run_guest q35 -machine q35,accel=kvm
+
+# Which instructions the host is emulating, and how often.  Every #GP the
+# guest takes for a privileged instruction with no paravirt hook lands in
+# the emulator, and the exit histogram counts them all as one row.
+if [ "$SUITE" = perf ] && [ -d "$T" ]; then
+	total=$(grep -c kvm_emulate_insn "$T/trace" 2>/dev/null || echo 0)
+	say "--- emulated instructions: $total traced ---"
+	sed -n 's/.*kvm_emulate_insn: [^:]*:[^:]*:\([0-9a-f ]*\)(.*/\1/p' "$T/trace" |
+		awk '{ printf "%s %s %s\n", $1, $2, $3 }' |
+		sort | uniq -c | sort -rn | head -20 | sed 's/^/L1: insn: /'
+	# The list above is dominated by the bootstrap: SeaBIOS runs fully
+	# emulated in non-PVM mode, up to 130 instructions per exit, so a
+	# memcpy loop drowns out everything else.  What causes the #GP exits
+	# is the privileged subset, so count that separately.
+	say "--- privileged instructions only ---"
+	sed -n 's/.*kvm_emulate_insn: [^:]*:[^:]*:\([0-9a-f ]*\)(.*/\1/p' "$T/trace" |
+		awk '
+		{
+			# Skip operand-size, address-size and REX prefixes.
+			i = 1
+			while ($i == "66" || $i == "67" || $i ~ /^4[0-9a-f]$/ ||
+			       $i == "f2" || $i == "f3" || $i == "2e" || $i == "3e" ||
+			       $i == "26" || $i == "36" || $i == "64" || $i == "65")
+				i++
+			op = $i
+			op2 = $(i+1)
+			name = ""
+			if (op == "0f") {
+				if (op2 == "20") name = "mov %crN,%reg"
+				else if (op2 == "22") name = "mov %reg,%crN"
+				else if (op2 == "21") name = "mov %drN,%reg"
+				else if (op2 == "23") name = "mov %reg,%drN"
+				else if (op2 == "30") name = "wrmsr"
+				else if (op2 == "32") name = "rdmsr"
+				else if (op2 == "31") name = "rdtsc"
+				else if (op2 == "a2") name = "cpuid"
+				else if (op2 == "01") name = "lgdt/lidt/etc"
+				else if (op2 == "06") name = "clts"
+				else if (op2 == "09") name = "wbinvd"
+				else if (op2 == "00") name = "lldt/ltr/etc"
+				else if (op2 == "07") name = "sysret"
+				else if (op2 == "05") name = "syscall"
+			}
+			else if (op == "ec" || op == "ed") name = "in dx"
+			else if (op == "ee" || op == "ef") name = "out dx"
+			else if (op == "e4" || op == "e5") name = "in imm"
+			else if (op == "e6" || op == "e7") name = "out imm"
+			else if (op == "6c" || op == "6d") name = "ins"
+			else if (op == "6e" || op == "6f") name = "outs"
+			else if (op == "fa") name = "cli"
+			else if (op == "fb") name = "sti"
+			else if (op == "f4") name = "hlt"
+			if (name != "") n[name]++
+		}
+		END { for (k in n) printf "%8d  %s\n", n[k], k }' |
+		sort -rn | sed 's/^/L1: priv: /'
+
+	# Which MSRs, since wrmsr is what is left once the console is quiet.
+	say "--- MSR accesses by register ---"
+	sed -n 's/.*kvm_msr: msr_\([a-z]*\) \([0-9a-f]*\) .*/\1 \2/p' "$T/trace" |
+		sort | uniq -c | sort -rn | head -12 | sed 's/^/L1: msr: /'
+
+	say "--- dropped by the trace buffer ---"
+	grep -h "overrun" "$T/per_cpu/cpu0/stats" 2>/dev/null | sed 's/^/L1: insn: cpu0 /'
+fi
 
 if [ -n "$PERF_PREFIX" ]; then
 	# The name depends on whether perf recorded host, guest or both:
