@@ -252,9 +252,24 @@ write-protection and then reconstruct what changed. A guest that declared
 its updates would let the host skip the write-protection, the fault, the
 unsync and the resync.
 
-It is also the measurement to optimise against: `perf/parallel-fork`
-shows PVM's penalty growing from 3.85x at one vCPU to 6.40x at eight,
-which is the only figure in this document that gets worse with scale.
+It is also the measurement to optimise against. With each worker pinned
+to its own vCPU -- `runtime.NumCPU()` alone lets the Go scheduler pile
+them onto a couple of CPUs and measure the guest's scheduler instead:
+
+```
+        fork-exec(us)   page-cycle(ns)
+pvm  1        1846            4709
+pvm  8         874            1531
+intel 1        483             742
+intel 8        129             237
+
+PVM/KVM     1 vCPU   8 vCPU
+fork-exec    3.82x    6.78x
+page-cycle   6.35x    6.46x
+```
+
+fork+exec is the only figure in this document that gets worse with scale,
+and pinning made the trend cleaner rather than weaker.
 
 ### What a PV MMU would actually buy
 

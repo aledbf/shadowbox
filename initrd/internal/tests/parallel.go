@@ -18,6 +18,21 @@ import (
 //
 // These scale with the number of CPUs the guest was given, so the same case
 // run at 1, 2, 8 and 16 vCPUs is a scaling curve rather than a single point.
+// pinWorker puts the calling goroutine's thread on one CPU and keeps it
+// there.  runtime.NumCPU() only says how many there are: without this the Go
+// scheduler is free to run every worker on a couple of CPUs, which measures
+// the guest's scheduler rather than the host's shadow MMU.
+func pinWorker(cpu int) error {
+	runtime.LockOSThread()
+
+	var set cpuSet
+	set.set(cpu)
+	if err := schedSetaffinity(0, &set); err != nil {
+		return fmt.Errorf("pinning to cpu %d: %w", cpu, err)
+	}
+	return nil
+}
+
 func registerParallel(h *harness.Harness) {
 	h.Add(harness.Case{
 		Name:    "perf/parallel-fork",
@@ -27,6 +42,10 @@ func registerParallel(h *harness.Harness) {
 			n := runtime.NumCPU()
 			const perCPU = 60
 
+			// Without this the runtime may keep fewer threads than
+			// CPUs and the workers serialise on them.
+			defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(n))
+
 			start := time.Now()
 			var wg sync.WaitGroup
 			errs := make([]error, n)
@@ -34,7 +53,10 @@ func registerParallel(h *harness.Harness) {
 				wg.Add(1)
 				go func(i int) {
 					defer wg.Done()
-					runtime.LockOSThread()
+					if err := pinWorker(i); err != nil {
+						errs[i] = err
+						return
+					}
 					for j := 0; j < perCPU; j++ {
 						code, _, err := runVictim("victim-exit")
 						if err != nil {
@@ -76,6 +98,8 @@ func registerParallel(h *harness.Harness) {
 			const rounds = 6
 			page := syscall.Getpagesize()
 
+			defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(n))
+
 			start := time.Now()
 			var wg sync.WaitGroup
 			errs := make([]error, n)
@@ -83,6 +107,10 @@ func registerParallel(h *harness.Harness) {
 				wg.Add(1)
 				go func(i int) {
 					defer wg.Done()
+					if err := pinWorker(i); err != nil {
+						errs[i] = err
+						return
+					}
 					for r := 0; r < rounds; r++ {
 						b, err := syscall.Mmap(-1, 0, size,
 							syscall.PROT_READ|syscall.PROT_WRITE,
@@ -117,9 +145,15 @@ func registerParallel(h *harness.Harness) {
 				}
 			}
 			d := time.Since(start)
-			faults := n * rounds * (size / page)
-			t.Logf("%d cpus x %d rounds x %dMB", n, rounds, size>>20)
-			t.Metric("ns_per_fault", float64(d.Nanoseconds())/float64(faults), "ns")
+			pages := n * rounds * (size / page)
+			// Not ns_per_fault: the time covers mmap, the touch, the
+			// read-back check and munmap.  That is the right thing to
+			// measure for address space churn, but calling it a fault
+			// would invite comparison with perf/page-fault, which
+			// measures only the touch.
+			t.Logf("%d cpus x %d rounds x %dMB, per page: map+touch+verify+unmap",
+				n, rounds, size>>20)
+			t.Metric("ns_per_page_cycle", float64(d.Nanoseconds())/float64(pages), "ns")
 			return nil
 		},
 	})
