@@ -52,7 +52,7 @@ qemu-system-x86_64 \
 	-smp 2 -m 1G \
 	-kernel /mnt/payload/guest-vmlinux \
 	-initrd /mnt/payload/initrd.cpio.gz \
-	-append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 panic=-1 oops=panic nokaslr pvmtest.suite=$SUITE pvmtest.tag=pvm-guest pvmtest.expect=pvm" \
+	-append "console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 panic=-1 oops=panic pvmtest.suite=$SUITE pvmtest.tag=pvm-guest pvmtest.expect=pvm" \
 	-nographic -no-reboot -display none -serial mon:stdio \
 	< /dev/null 2>&1 | sed 's/^/G: /'
 

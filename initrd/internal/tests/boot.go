@@ -76,17 +76,48 @@ func registerBoot(h *harness.Harness) {
 		Name:   "boot/no-oops",
 		Suites: []string{harness.Smoke},
 		Fn: func(t *harness.T) error {
-			b, err := os.ReadFile("/dev/kmsg")
+			// /dev/kmsg blocks once it reaches the end of the buffer,
+			// waiting for the next message, so it has to be opened
+			// non-blocking and read until EAGAIN.  Reading it as a plain
+			// file just hangs until the case times out, which is exactly
+			// what the first version of this did.
+			fd, err := syscall.Open("/dev/kmsg", syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
 			if err != nil {
-				// Reading /dev/kmsg blocks at the end of the buffer, so
-				// this is best effort; not having it is not a failure.
-				t.Logf("cannot read /dev/kmsg: %v", err)
+				t.Logf("cannot open /dev/kmsg: %v", err)
 				return nil
 			}
-			for _, bad := range []string{"BUG:", "Oops", "WARNING:", "general protection fault", "unable to handle"} {
-				if strings.Contains(string(b), bad) {
-					return fmt.Errorf("the kernel log contains %q", bad)
+			defer syscall.Close(fd)
+
+			var log strings.Builder
+			buf := make([]byte, 8192)
+			for lines := 0; lines < 100000; lines++ {
+				n, err := syscall.Read(fd, buf)
+				if err == syscall.EAGAIN || n == 0 {
+					break
 				}
+				if err == syscall.EPIPE {
+					// The reader fell behind the ring buffer; carry on
+					// from wherever it is now.
+					continue
+				}
+				if err != nil {
+					return fmt.Errorf("reading /dev/kmsg: %w", err)
+				}
+				log.Write(buf[:n])
+			}
+
+			var found []string
+			for _, bad := range []string{
+				"BUG:", "Oops", "WARNING:", "general protection fault",
+				"unable to handle", "Call Trace:", "stack segment",
+			} {
+				if strings.Contains(log.String(), bad) {
+					found = append(found, bad)
+				}
+			}
+			t.Logf("scanned %d bytes of kernel log", log.Len())
+			if len(found) > 0 {
+				return fmt.Errorf("the kernel log contains %s", strings.Join(found, ", "))
 			}
 			return nil
 		},

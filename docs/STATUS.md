@@ -4,10 +4,33 @@ Written alongside the 7.3 port, before any of it had been booted.
 
 ## What has been run
 
-Nothing yet. The guest kernel builds clean with and without
-`CONFIG_X86_PIE`, and `kvm-pvm` builds as a module, but no image produced
-by this tree has been executed. Every claim below is about what the code
-is supposed to do.
+Stage 0 passes, on both entry paths, on an i9-13900HK under ordinary KVM:
+
+```
+PVMTEST-RESULT: ok tag=stage0-pvh-smoke      suite=smoke   pass=11 fail=0
+PVMTEST-RESULT: ok tag=stage0-bzimage-smoke  suite=smoke   pass=11 fail=0
+PVMTEST-RESULT: ok tag=stage0-pvh-default    suite=default pass=31 fail=0
+```
+
+So the PIE kernel boots, reaches user space, and behaves like a kernel.
+That covers `__startup_64()`, the moved page-table entries, the runtime
+`kernel_map_base`, the relocated fixmap, and the PVH entry changes -- all
+of which had never been executed before this.
+
+Two results are worth reading rather than counting:
+
+- `boot/entry-path` reports boot protocol **0x020c** on the ELF image,
+  which is the version `init_pvh_bootparams()` stamps and nothing else
+  does. The PVH entry really did run, which means the PIE
+  `call xen_prepare_pvh` from the identity mapping works.
+- `pvm/kernel-map` reports `_text = 0xffffffff81000000`. That is the
+  right answer *here*: `pvm_detect()` returns false under plain KVM, so
+  the relocation is correctly a no-op. Under a PVM host this address has
+  to be somewhere else, and `pvm/relocated` says so once
+  `pvmtest.expect=pvm` is passed.
+
+Nothing has been run against a PVM host. The switcher has never
+executed.
 
 ## Known gaps in the port
 
@@ -25,12 +48,11 @@ is supposed to do.
 
 ## Order to attack it in
 
-1. `make stage0` with the smoke suite. This is the first time any of the
-   PIE work runs. Expect it to fail; the serial log up to the failure is
-   the useful output.
-2. `make stage0` with the default suite, until it is green. At this point
-   the port is a working ordinary kernel, which is a prerequisite for it
-   being anything else.
-3. `make stage1`. The host side is the less-changed half, so this should
-   be easier than it sounds.
-4. `make stage2`. This is the first execution of the switcher.
+1. ~~`make stage0`~~ -- done, green on both entry paths.
+2. `make stage1`. Needs `mmdebstrap` for the L1 root filesystem. The host
+   side is the less-changed half, so this should be easier than it
+   sounds.
+3. `make stage2`. This is the first execution of the switcher, and the
+   first time `pvm/relocated` has anything to check.
+4. `make full`, then `make perf` for a PVM-versus-KVM comparison on the
+   same machine.

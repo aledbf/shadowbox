@@ -16,6 +16,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aledbf/pvm-testbed/initrd/internal/harness"
@@ -26,7 +27,12 @@ import (
 func main() {
 	// The victim modes are the same binary re-executed with an argument.
 	// Keeping them in one binary keeps the initrd to a single file.
-	if len(os.Args) > 1 {
+	//
+	// The prefix is load bearing.  The kernel passes every command line
+	// word it did not recognise to init as an argument, so PID 1 really
+	// does get argv[1]="nokaslr" and a bare "is there an argument?" test
+	// kills the boot with "unknown victim mode: nokaslr".
+	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "victim-") {
 		tests.RunVictim(os.Args[1:])
 		return
 	}

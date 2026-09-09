@@ -45,4 +45,8 @@ CONFIG_DEBUG_KERNEL=y
 CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT=y
 CONFIG_KALLSYMS=y
 CONFIG_KALLSYMS_ALL=y
+
+# /sys/kernel/boot_params is how the harness tells the PVH entry apart
+# from an ordinary bzImage load; without it the two are guesswork.
+CONFIG_DEBUG_BOOT_PARAMS=y
 CONFIG_FRAME_POINTER=y

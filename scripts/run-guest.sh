@@ -36,7 +36,7 @@ mkdir -p "$OUT/logs"
 log_file="$OUT/logs/$tag.log"
 
 cmdline="console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 panic=-1"
-cmdline="$cmdline oops=panic nokaslr no_timer_check"
+cmdline="$cmdline oops=panic no_timer_check"
 cmdline="$cmdline pvmtest.suite=$suite pvmtest.tag=$tag"
 
 log "booting $tag  ($(basename "$kernel"))"

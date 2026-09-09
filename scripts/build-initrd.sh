@@ -8,8 +8,12 @@
 source "$(dirname "$0")/lib.sh"
 need go; need cpio
 
-STAGE="$OUT/initrd-root"
-rm -rf "$STAGE"
+# A fresh directory each time, and removed on the way out.  A fixed path
+# under out/ meant a stale staging tree survived between runs, and one
+# run under sudo left it owned by root and every later run failed on the
+# rm.
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/pvm-initrd.XXXXXX")"
+trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE"/{proc,sys,dev,tmp,run}
 
 log "building the Go init (static, no cgo)"

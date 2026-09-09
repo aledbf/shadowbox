@@ -9,6 +9,7 @@ package tests
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/aledbf/pvm-testbed/initrd/internal/harness"
 )
@@ -17,6 +18,7 @@ import (
 // adding a test to a suite is a one word change next to the test.
 func Register(h *harness.Harness) {
 	registerBoot(h)
+	registerEntryPath(h)
 	registerPVM(h)
 	registerMM(h)
 	registerSyscall(h)
@@ -43,4 +45,25 @@ func RunVictim(args []string) {
 		fmt.Fprintf(os.Stderr, "unknown victim mode: %s\n", args[0])
 		os.Exit(127)
 	}
+}
+
+// cmdlineTag reports which boot mode run-guest.sh said it was using.
+// The tag is of the form "stage0-<boot>-<suite>", so the middle field is
+// the one that says pvh or bzimage.
+func cmdlineTag() string {
+	b, err := os.ReadFile("/proc/cmdline")
+	if err != nil {
+		return ""
+	}
+	for _, tok := range strings.Fields(string(b)) {
+		if !strings.HasPrefix(tok, "pvmtest.tag=") {
+			continue
+		}
+		for _, part := range strings.Split(strings.TrimPrefix(tok, "pvmtest.tag="), "-") {
+			if part == "pvh" || part == "bzimage" {
+				return part
+			}
+		}
+	}
+	return ""
 }
