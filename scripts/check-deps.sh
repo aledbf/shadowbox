@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Says what is missing and how to get it, once, rather than failing part
+# way through a kernel build.
+
+source "$(dirname "$0")/lib.sh"
+
+missing=0
+have() {
+	if command -v "$1" >/dev/null 2>&1; then
+		printf '  \033[32mok\033[0m   %-16s %s\n' "$1" "$(command -v "$1")"
+	else
+		printf '  \033[31mmiss\033[0m %-16s %s\n' "$1" "$2"
+		missing=1
+	fi
+}
+
+echo "build:"
+have make    "apt install build-essential"
+have gcc     "apt install build-essential"
+have bison   "apt install bison"
+have flex    "apt install flex"
+have bc      "apt install bc"
+have cpio    "apt install cpio"
+have go      "apt install golang-go, or from go.dev"
+have pahole  "apt install dwarves  (optional: BTF)"
+
+echo "run:"
+have qemu-system-x86_64 "apt install qemu-system-x86"
+have mmdebstrap         "apt install mmdebstrap  (only needed for L1)"
+have mkfs.ext4          "apt install e2fsprogs   (only needed for L1)"
+
+echo "kernel headers and libs:"
+for lib in libelf.h openssl/ssl.h; do
+	if echo "#include <$lib>" | gcc -E - >/dev/null 2>&1; then
+		printf '  \033[32mok\033[0m   %s\n' "$lib"
+	else
+		printf '  \033[31mmiss\033[0m %-16s apt install libelf-dev libssl-dev\n' "$lib"
+		missing=1
+	fi
+done
+
+echo "host:"
+if [ -w /dev/kvm ]; then
+	printf '  \033[32mok\033[0m   /dev/kvm writable\n'
+else
+	printf '  \033[31mmiss\033[0m /dev/kvm  -- sudo usermod -aG kvm %s, then log out and back in\n' "$(id -un)"
+	missing=1
+fi
+
+# The PVM host refuses to load without these; better to find out now
+# than after building two kernels.
+for feat in fsgsbase rdtscp cx16; do
+	if grep -qw "$feat" /proc/cpuinfo; then
+		printf '  \033[32mok\033[0m   cpu has %s\n' "$feat"
+	else
+		printf '  \033[31mmiss\033[0m cpu lacks %s -- kvm-pvm will refuse to load\n' "$feat"
+		missing=1
+	fi
+done
+
+exit $missing

@@ -1,0 +1,30 @@
+# The kernel under test: a PVM guest.
+#
+# The whole point of the port is that this same image also boots as an
+# ordinary KVM guest, which is what stage 0 checks, so nothing here may
+# be conditional on actually finding a PVM hypervisor.
+
+CONFIG_PVM_GUEST=y
+CONFIG_X86_PIE=y
+CONFIG_RELOCATABLE=y
+
+# The PVM guest is entered through the PVH ELF note, so the PVH entry
+# path has to be built even though this is not a Xen guest.
+CONFIG_HYPERVISOR_GUEST=y
+CONFIG_PARAVIRT=y
+CONFIG_PARAVIRT_XXL=y
+CONFIG_XEN=y
+CONFIG_XEN_PV=y
+CONFIG_XEN_PVH=y
+CONFIG_PVH=y
+
+CONFIG_KVM_GUEST=y
+CONFIG_PARAVIRT_CLOCK=y
+
+# KASLR is not meaningful here: qemu -kernel on the ELF image enters at
+# the PVH note and never runs the decompressor that would apply it.
+# Leave it off so the two boot paths land in the same place.
+# CONFIG_RANDOMIZE_BASE is not set
+
+# The guest does not host anything.
+# CONFIG_KVM is not set

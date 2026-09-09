@@ -1,0 +1,36 @@
+# The PVM host kernel, booted in L1.
+#
+# L1 is an ordinary KVM guest.  PVM needs no VMX of its own -- that is
+# the entire point -- so nested virtualisation is not required for this
+# to work, and the harness deliberately does not enable it.
+
+CONFIG_VIRTUALIZATION=y
+CONFIG_KVM=y
+CONFIG_KVM_PVM=y
+
+# Not needed by PVM, but useful for A/B runs against the same guest.
+CONFIG_KVM_INTEL=m
+CONFIG_KVM_AMD=m
+
+# The host requires these at run time (see hardware_cap_check()); build
+# them in so a missing one is a clear message rather than a fault.
+CONFIG_X86_CPUID=y
+CONFIG_X86_MSR=y
+
+# L1 needs a real root filesystem, not just an initrd.
+CONFIG_EXT4_FS=y
+CONFIG_BLK_DEV=y
+CONFIG_SCSI=y
+CONFIG_BLK_DEV_SD=y
+CONFIG_VIRTIO_SCSI=y
+
+# The host runs qemu.
+CONFIG_KVM_MMIO=y
+CONFIG_HAVE_KVM_IRQCHIP=y
+CONFIG_EVENTFD=y
+
+# The host is where a PVM performance number gets measured, so keep the
+# expensive debug options out of it.
+# CONFIG_DEBUG_KERNEL is not set
+# CONFIG_PVM_GUEST is not set
+# CONFIG_X86_PIE is not set
