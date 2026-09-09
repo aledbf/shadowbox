@@ -40,11 +40,42 @@ executed.
 - `segment.h`'s `vdso_read_cpunode` RDTSCP alternative is unported. The
   `syscall/getcpu-affinity` case is the one that will notice.
 - Seven objtool warnings remain on the PIE build, two of them in PVM
-  code:
-  - `pvm_event+0x6a: call to {dynamic}() leaves .noinstr.text section`
-  - `pvm_early_setup+0x1e2: relocation to !ENDBR: this_cpu_cmpxchg16b_emu`
-  The other five predate the PVM changes and want checking against a
-  clean v7.3-rc2 build before anyone spends time on them.
+  code. The other five have not been checked against a clean v7.3-rc2
+  build and may well predate the port; nobody should spend time on them
+  before that comparison is made.
+
+  **`pvm_event+0x6a: call to {dynamic}() leaves .noinstr.text section`**
+
+  This is the `func(regs, vector)` in `pvm_handle_sysvec()`, inlined into
+  `pvm_event()`. The targets are all `DEFINE_IDTENTRY_SYSVEC` handlers,
+  which *are* noinstr and do their own `irqentry_enter()`, so the call is
+  correct — objtool simply cannot see through a function pointer.
+
+  It has exactly one mechanism for this, and it is hardcoded to one
+  table: `noinstr_call_dest()` falls through to `pv_call_dest()`, which
+  walks `file->pv_ops[]` and checks every recorded target is in a noinstr
+  section. `pvm_sysvec_table` is structurally the same thing and gets
+  none of that.
+
+  So there are two real fixes and one non-fix. Generalise objtool's
+  pv_ops machinery to any table declared noinstr-only — the right answer,
+  and an upstream-sized change. Or replace the table with a `switch`, so
+  every target is a direct call objtool can follow, which is what the
+  syscall dispatch did for a related reason; but `pvm_install_sysvec()`
+  is a runtime registration API, so that is not a mechanical change. The
+  non-fix is wrapping the call in `instrumentation_begin()`: it would
+  silence the warning by asserting something false, and the handlers open
+  their own instrumentation region anyway.
+
+  Until then it is a live gap, not cosmetic: it means kprobes and ftrace
+  can fire in a context where the entry code has not finished setting up.
+
+  **`pvm_early_setup+0x1e2: relocation to !ENDBR: this_cpu_cmpxchg16b_emu`**
+
+  From `pvm_early_patch()`, which takes the address of the emulation
+  helper in order to overwrite it. Whether this needs an ENDBR or an
+  `ANNOTATE_NOENDBR` depends on whether anything ever calls that address
+  indirectly, which has not been checked.
 
 ## Order to attack it in
 
