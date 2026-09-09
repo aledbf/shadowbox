@@ -60,11 +60,18 @@ if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
 	die "$tag: timed out after ${BOOT_TIMEOUT}s -- see $log_file"
 fi
 
+# A suite can pass every case and still have left a WARN or a stall in the
+# log behind it.  Check that first: it is the finding nobody wrote a test
+# for, and it should not be buried under a green result line.
+sanitized=0
+"$TESTBED/scripts/sanitize-log.sh" -q "$log_file" || sanitized=$?
+
 # The harness prints exactly one of these as its last act.  Anything else
 # means the guest died before it could report, which is the failure mode
 # that matters most here.
 if grep -q '^PVMTEST-RESULT: ok ' "$log_file"; then
 	log "$tag: $(grep -m1 '^PVMTEST-RESULT:' "$log_file")"
+	[ "$sanitized" = 0 ] || die "$tag: every case passed, but the kernel log did not"
 	exit 0
 fi
 if grep -q '^PVMTEST-RESULT: fail ' "$log_file"; then

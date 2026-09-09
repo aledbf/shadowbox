@@ -36,14 +36,9 @@ fi
 
 # kvm_x86_vendor_init() WARNs once for every kvm_x86_ops the PVM backend
 # does not implement.  Those are a known, listed gap -- see docs/STATUS.md
-# -- so they are reported rather than failed on; anything else is not.
+# and configs/log-allow.txt -- so they are reported rather than failed on.
+# Everything else in the log is the sanitizer's problem now.
 n=$(grep -c 'WARNING:.*kvm-x86-\(nested-\|pmu-\)\?ops\.h' "$log_file" || true)
 log "host kernel reached user space; $n missing-kvm_x86_ops warnings"
 
-other=$(grep -E 'BUG:|general protection fault|unable to handle|Kernel panic' "$log_file" || true)
-if [ -n "$other" ]; then
-	warn "the host kernel log has more than the known ops warnings:"
-	printf '%s\n' "$other" >&2
-	exit 1
-fi
-exit 0
+exec "$TESTBED/scripts/sanitize-log.sh" -q "$log_file"

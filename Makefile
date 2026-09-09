@@ -7,6 +7,9 @@
 # make full     stage2 with the long suites
 # make perf     the measurements, on PVM and on plain KVM, side by side
 # make mmu      shadow MMU event counts, both vendors
+# make quick    regress + stage2, the shortest thing worth running
+# make sanitize scan every log kept under out/logs for kernel complaints
+# make soak     stage2 N times over, then sanitize the lot
 
 SHELL := /bin/bash
 S     := scripts
@@ -15,10 +18,14 @@ KSRC ?= /home/aledbf/Trabajo/github/linux-aledbf
 export KSRC
 
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
-        check-rootfs stage0 stage1 stage2 full perf mmu clean distclean
+        check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
+        host-sanitize-log soak clean distclean
+
+# How many times "make soak" repeats stage 2.
+SOAK ?= 10
 
 help:
-	@sed -n '2,9p' Makefile | sed 's/^# \?//'
+	@sed -n '2,/^$$/p' Makefile | grep '^#' | sed 's/^# \?//'
 
 deps:
 	@$(S)/check-deps.sh
@@ -76,6 +83,26 @@ perf: guest-kernel initrd host-kernel check-rootfs
 	@echo "=== PVM inside L1 (two layers) ==="
 	@$(S)/run-l1.sh perf pvm
 	@$(S)/compare-perf.sh
+
+# The cheapest bug detector here: it needs nobody to have written a test
+# for the thing that went wrong.  Every runner already calls it on its own
+# log; this scans everything kept from every run so far.
+sanitize:
+	@$(S)/sanitize-log.sh
+
+host-sanitize-log: sanitize
+
+quick: regress stage2
+
+# Repetition is what finds the once-in-thirty WARN.  Each iteration keeps
+# its own log so the sanitizer at the end has all of them, and a failure
+# stops the loop rather than being averaged away.
+soak: host-kernel check-rootfs initrd guest-kernel
+	@set -e; for i in $$(seq 1 $(SOAK)); do \
+		echo "=== soak $$i/$(SOAK) ==="; \
+		LOG_SUFFIX=soak$$i $(S)/run-l1.sh default pvm; \
+	done
+	@$(S)/sanitize-log.sh
 
 clean:
 	rm -rf out/logs out/initrd-root out/payload

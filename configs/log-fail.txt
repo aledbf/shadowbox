@@ -1,0 +1,56 @@
+# Patterns that mean the kernel found something wrong with itself.
+#
+# One extended regular expression per line; blank lines and lines starting
+# with '#' are ignored.  A match fails the run unless configs/log-allow.txt
+# excuses that specific line.
+#
+# Keep these anchored on the text the kernel prints, not on what a test
+# prints: the point is to catch what nobody wrote a test for.
+
+# --- outright death -----------------------------------------------------
+Kernel panic
+kernel BUG at
+Oops(:| #)
+general protection fault
+double fault
+divide error
+unable to handle (page fault|kernel)
+Fixing recursive fault
+stack-protector: Kernel stack is corrupted
+Corrupted (low|page) memory
+
+# --- the assertion families ---------------------------------------------
+^.*\bBUG: 
+^.*\bWARNING: 
+KASAN: 
+UBSAN: 
+kfence-#
+
+# --- lifetime and list corruption ---------------------------------------
+refcount_t: 
+list_(add|del) corruption
+BUG: Bad page (state|map)
+bad page state
+Objects remaining|kmemleak: .* new suspected
+
+# --- locking and RCU ----------------------------------------------------
+INFO: rcu.* stall
+detected stalls on CPUs/tasks
+self-detected stall
+rcu.* kthread starved
+INFO: possible (circular locking|recursive locking|irq lock inversion)
+suspicious RCU usage
+INFO: trying to register non-static key
+INFO: task .* blocked for more than
+BUG: sleeping function called
+BUG: scheduling while atomic
+bad: scheduling from the idle thread
+
+# --- watchdogs ----------------------------------------------------------
+watchdog: BUG: soft lockup
+watchdog: Watchdog detected hard LOCKUP
+NMI watchdog: .*(LOCKUP|stuck)
+
+# --- IRQ and hardware plumbing ------------------------------------------
+do_IRQ: .*No irq handler
+Disabling IRQ #

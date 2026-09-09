@@ -49,7 +49,9 @@ if [ -x "$PERF" ]; then
 fi
 
 mkdir -p "$OUT/logs"
-log_file="$OUT/logs/l1-$suite${2:+-$vendor}.log"
+# LOG_SUFFIX lets a caller that runs the same suite repeatedly -- "make
+# soak" -- keep every iteration's log instead of overwriting one.
+log_file="$OUT/logs/l1-$suite${2:+-$vendor}${LOG_SUFFIX:+-$LOG_SUFFIX}.log"
 
 log "booting L1 (KVM vendor=$vendor), suite=$suite"
 set +e
@@ -81,10 +83,14 @@ if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
 	die "L1 timed out -- see $log_file"
 fi
 
+sanitized=0
+"$TESTBED/scripts/sanitize-log.sh" -q "$log_file" || sanitized=$?
+
 # The agent tags each guest's output with the machine type it booted, so
 # the prefix is "G[q35]:" rather than "G:".
 if grep -q '^G\[[a-z0-9]*\]: PVMTEST-RESULT: ok ' "$log_file"; then
 	log "PVM guest: $(grep -m1 'PVMTEST-RESULT:' "$log_file" | sed 's/.*PVMTEST/PVMTEST/')"
+	[ "$sanitized" = 0 ] || die "the guest passed, but the L1 kernel log did not"
 	exit 0
 fi
 warn "PVM guest did not pass; last of the log:"

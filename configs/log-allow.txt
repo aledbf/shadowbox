@@ -1,0 +1,24 @@
+# Known, understood log lines that must not fail a run.
+#
+# One extended regular expression per line, matched against the whole log
+# line.  Every entry needs a comment saying why it is here and what would
+# have to happen for it to be deleted -- an allowlist without reasons
+# decays into a way of not looking at the logs.
+#
+# "Unsupported" is a legitimate result.  Noise is not.
+
+# --- the PVM backend's declared gaps ------------------------------------
+# kvm_x86_vendor_init() and kvm_pmu_ops_update() WARN once per kvm_x86_ops,
+# kvm_x86_nested_ops and kvm_pmu_ops entry that the vendor module leaves
+# NULL.  PVM implements no nested virtualisation and no PMU on purpose; see
+# docs/STATUS.md.  Delete these when those gaps close, not before.
+WARNING: .*kvm-x86-ops\.h:[0-9]+ at kvm_x86_vendor_init\+
+WARNING: .*kvm-x86-nested-ops\.h:[0-9]+ at kvm_x86_vendor_init\+
+WARNING: .*kvm-x86-pmu-ops\.h:[0-9]+ at kvm_pmu_ops_update\+
+
+# --- lines that only quote a pattern ------------------------------------
+# The sanitizer's own report, and the test harness naming a case, both
+# contain the words they are looking for.
+^(known|fail|  )?.*sanitize-log:
+^(ok|not ok) [0-9]+ - 
+^# 
