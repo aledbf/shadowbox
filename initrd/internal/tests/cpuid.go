@@ -212,6 +212,16 @@ func registerCPUID(h *harness.Harness) {
 						"forced to 0 for the duration of the guest", f)
 				}
 			}
+
+			// Invariant M4: the guest runs at CPL3 in both of its
+			// modes, so hardware SMAP cannot separate them.  SMEP
+			// has a substitute -- NX on the user mapping -- and is
+			// advertised.  SMAP has none and must not be.
+			if flags["smap"] {
+				return fmt.Errorf("PVM advertises smap, but the guest runs " +
+					"at CPL3 in both modes and nothing emulates " +
+					"supervisor-mode access prevention (invariant M4)")
+			}
 			// eIBRS is selected from ARCH_CAPABILITIES rather than
 			// CPUID, so clearing the CPUID bits is not enough on its
 			// own -- kvm_caps.supported_arch_cap has to drop

@@ -835,6 +835,93 @@ static void test_pkru_leak(struct vm *v)
 	   "the PVM wrappers did not run)", guest_pkru, mine);
 }
 
+/* --- the CPL3 invariants, checked from the VMM's side ------------------ */
+
+/*
+ * These reference Documentation/virt/kvm/x86/pvm-invariants.rst by name.
+ * The point of doing it here rather than as free-standing checks is that
+ * the document is the contract: if an invariant is restated, the test
+ * that carries its number is the one that has to change with it.
+ */
+static void test_invariants(struct vm *v)
+{
+	bool host_nx, host_la57;
+	uint32_t r[4];
+
+	/*
+	 * M4: a guest kernel page and a guest user page are both USER to the
+	 * hardware, so the guest-kernel-executes-guest-user case is blocked
+	 * by setting NX on the user mapping.  With no host NX there is no
+	 * substitute, and the document says such a host must be rejected at
+	 * module load rather than silently degraded.  So SMEP may only be
+	 * advertised where NX exists -- if it were advertised without,
+	 * the guest would be told it has a protection nothing implements.
+	 */
+	current_case = "pvm/invariant-M4-smep-needs-nx";
+	cpuid_count(0x80000001, 0, r);
+	host_nx = r[3] & (1u << 20);
+	if (cpuid_has(v->cpuid, 7, 0, 1, 7) && !host_nx)
+		nok("SMEP is advertised to the guest but the host has no NX; "
+		    "invariant M4 has nothing to emulate it with");
+	else
+		ok("SMEP advertised=%d, host NX=%d",
+		   cpuid_has(v->cpuid, 7, 0, 1, 7), host_nx);
+
+	/*
+	 * M4's other half, and the reason SMAP is not in the same sentence:
+	 * there is no equivalent trick for supervisor-mode *access*
+	 * prevention, so SMAP must not be advertised at all.
+	 */
+	current_case = "pvm/invariant-M4-no-smap";
+	if (cpuid_has(v->cpuid, 7, 0, 1, 20))
+		nok("SMAP is advertised, but PVM emulates no equivalent: the "
+		    "guest runs at CPL3 and hardware SMAP cannot separate its "
+		    "two modes");
+	else
+		ok("SMAP not advertised");
+
+	/*
+	 * M5: host and guest share a hardware CR3, so the shadow tree has the
+	 * host's depth.  A guest may only be offered LA57 where the host has
+	 * it.
+	 */
+	current_case = "pvm/invariant-M5-la57-matches-host";
+	cpuid_count(7, 0, r);
+	host_la57 = r[2] & (1u << 16);
+	if (cpuid_has(v->cpuid, 7, 0, 2, 16) && !host_la57)
+		nok("LA57 is advertised to the guest but the host is 4-level; "
+		    "the shadow root level cannot match the host's");
+	else
+		ok("LA57 advertised=%d, host LA57=%d",
+		   cpuid_has(v->cpuid, 7, 0, 2, 16), host_la57);
+
+	/*
+	 * The host PKRU half of the CPL3 argument: the guest runs at CPL3 on
+	 * the host's PKRU, so pvm_load_guest_xsave_state() forces it to 0
+	 * before entry -- otherwise a host process with a restrictive PKRU
+	 * would deny the guest access to its own pages.
+	 *
+	 * That path is only exercised when the host PKRU is actually
+	 * restrictive.  On a normal Linux host it is init_pkru
+	 * (0x55555554), which is why every guest run in this testbed already
+	 * exercises it and they all work.  This case exists to notice if
+	 * that stops being true, because then the coverage claim would be
+	 * vacuous rather than satisfied.
+	 */
+	current_case = "pvm/invariant-host-pkru-is-restrictive";
+	cpuid_count(7, 0, r);
+	if (!(r[2] & (1u << 4))) {
+		ok("no OSPKE on the host; nothing to restrict with");
+	} else if (host_pkru() == 0) {
+		nok("this process's PKRU is 0, so every guest run has been "
+		    "exercising the easy case: the wrapper that forces PKRU "
+		    "to 0 for the guest is never doing anything");
+	} else {
+		ok("host PKRU is %#x, so the forced-to-zero path is live",
+		   host_pkru());
+	}
+}
+
 /* --- is this even a PVM host? ----------------------------------------- */
 
 static int is_pvm_host(void)
@@ -870,6 +957,7 @@ int main(void)
 	test_msr_window(&v);
 	test_unpinnable_pvcs(&v);
 	test_pku_not_advertised(&v);
+	test_invariants(&v);
 	test_pkru_leak(&v);
 	test_memslot_churn(&v);
 
