@@ -54,6 +54,7 @@ func (t *T) Metric(name string, value float64, unit string) {
 type Harness struct {
 	suite string
 	tag   string
+	only  string // substring filter, for profiling one case at a time
 	cases []Case
 
 	pass, fail, skip int
@@ -64,6 +65,10 @@ func New(suite, tag string) *Harness {
 	return &Harness{suite: suite, tag: tag}
 }
 
+// Only narrows the run to cases whose name contains sub.  A profile of
+// four benchmarks says less than a profile of the one being asked about.
+func (h *Harness) Only(sub string) { h.only = sub }
+
 func (h *Harness) Add(c Case) {
 	if c.Timeout == 0 {
 		c.Timeout = 30 * time.Second
@@ -72,6 +77,9 @@ func (h *Harness) Add(c Case) {
 }
 
 func (h *Harness) selected(c Case) bool {
+	if h.only != "" && !strings.Contains(c.Name, h.only) {
+		return false
+	}
 	if h.suite == "all" {
 		return true
 	}

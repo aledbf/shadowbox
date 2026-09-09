@@ -108,6 +108,38 @@ ERETU                     1548     0.33%    0.66%    17.11us
 HC_LOAD_GS                1209     0.25%    0.03%     1.03us
 ```
 
+### The syscall number, against the right baseline
+
+3.3x was the wrong comparison. A PVM guest runs with KPTI forced off: its
+kernel/user page-table separation comes from the hypervisor's shadow MMU,
+not from PTI. Comparing it against an ordinary guest that also has PTI off
+compares a kernel with that separation against one without.
+
+Against a guest that has it, on the same machine, same host, same nesting:
+
+```
+                       round 1   round 2
+KVM, pti=off             59.6      58.2 ns
+KVM, pti=on             150.9     152.0 ns      <- KPTI costs ~92ns
+PVM (pti off by design) 196.6     200.4 ns
+
+PVM / KPTI-enabled KVM   1.30x     1.32x
+```
+
+**1.3x, not 3.3x**, and stable to two decimal places across runs. Both pay
+for the same thing: an address-space switch on every syscall. KPTI writes
+CR3 on entry and again on exit; the switcher writes it once, because the
+guest's user and supervisor shadow page tables are separate tables.
+
+Reading `entry_SYSCALL_64_switcher` accounts for the remaining ~46ns:
+beyond the CR3 write it does a second `swapgs`, an `rdgsbase` and a
+`wrgsbase`, and about fourteen stores into the PVCS to hand the guest its
+entry state. That is the paravirtual protocol's bookkeeping, and it is
+where an optimisation would have to come from -- not from the CR3 write,
+which is the design.
+
+### The exit histogram
+
 **There is no SYSCALL row.** Not a single guest syscall reached the host
 across two million `getpid()` calls, so the switcher's direct
 user-to-supervisor switch works exactly as designed. The earlier guess --

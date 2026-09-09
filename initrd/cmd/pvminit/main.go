@@ -50,6 +50,10 @@ func main() {
 	sysinit.Banner()
 
 	h := harness.New(suite, tag)
+	if only := cmdline.Get("pvmtest.only", ""); only != "" {
+		fmt.Printf("PVMINIT: only cases matching %q\n", only)
+		h.Only(only)
+	}
 	tests.Register(h)
 
 	start := time.Now()

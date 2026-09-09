@@ -42,6 +42,10 @@ if [ -x "$PERF" ]; then
 		src=$(ldconfig -p | awk -v n="$lib" '$1==n{print $NF; exit}')
 		[ -n "$src" ] && cp "$src" "$payload/"
 	done
+	# perf annotate needs the symbols and the code; host-vmlinux keeps its
+	# symtab after --strip-debug.
+	[ -f "$OUT/images/host-vmlinux" ] &&
+		cp "$OUT/images/host-vmlinux" "$payload/"
 fi
 
 mkdir -p "$OUT/logs"
@@ -61,7 +65,7 @@ timeout --foreground -k 5 "$l1_timeout" \
 	-smp "$L1_CPUS" -m "$L1_MEM" \
 	-kernel "$OUT/images/host-bzImage" \
 	-drive file="$OUT/images/l1-rootfs.ext4",if=virtio,format=raw \
-	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite pvmtest.vendor=$vendor ${L1_APPEND:-} \
+	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite pvmtest.vendor=$vendor ${PROFILE_CASE:+pvmtest.profile_case=$PROFILE_CASE} ${GUEST_APPEND:+pvmtest.guest_append=$GUEST_APPEND} ${L1_APPEND:-} \
 systemd.mask=serial-getty@ttyS0.service systemd.show_status=false" \
 	-virtfs local,path="$payload",mount_tag=payload,security_model=none,readonly=on \
 	-nographic -no-reboot -display none -serial mon:stdio \

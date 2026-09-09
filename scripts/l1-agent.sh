@@ -56,6 +56,15 @@ say "host pti flag: $(grep -o ' pti' /proc/cpuinfo | head -1 || echo 'not set')"
 SUITE="$(sed -n 's/.*pvmtest\.suite=\([^ ]*\).*/\1/p' /proc/cmdline)"
 SUITE="${SUITE:-default}"
 
+# "profile" runs the guest's perf suite but samples the host's cycles
+# rather than counting the guest's exits.  The switcher executes at CPL0
+# in the vCPU thread, so it is host kernel text and shows up here.
+MODE=run
+if [ "$SUITE" = profile ]; then
+	MODE=profile
+	SUITE=perf
+fi
+
 say "qemu: $(qemu-system-x86_64 -version 2>&1 | head -1)"
 ls -l /mnt/payload | sed 's/^/L1: payload: /'
 
@@ -67,7 +76,9 @@ T=/sys/kernel/tracing
 if [ -d "$T" ]; then
 	echo 0 > "$T/tracing_on" 2>/dev/null
 	echo > "$T/trace" 2>/dev/null
-	if [ "$SUITE" = perf ]; then
+	if [ "$MODE" = profile ]; then
+		: # no tracepoints while sampling; they cost 20% of the profile
+	elif [ "$SUITE" = perf ]; then
 		# Just the emulated instructions, with room for a lot of them:
 		# the whole kvm event set would overrun the buffer in seconds
 		# and the opcode histogram is what the perf suite is for.
@@ -99,6 +110,11 @@ if [ "$SUITE" = perf ]; then
 	# harness still needs the console for its result line, which is
 	# forty-odd lines rather than thirty thousand characters.
 	APPEND="$APPEND quiet loglevel=0"
+	G_EXTRA="$(sed -n 's/.*pvmtest\.guest_append=\([^ ]*\).*/\1/p' /proc/cmdline)"
+	[ -n "$G_EXTRA" ] && APPEND="$APPEND $(echo "$G_EXTRA" | tr , ' ')"
+	# One benchmark, so the profile is of the thing being asked about.
+	PROFILE_CASE="$(sed -n 's/.*pvmtest\.profile_case=\([^ ]*\).*/\1/p' /proc/cmdline)"
+	[ "$MODE" = profile ] && APPEND="$APPEND pvmtest.only=${PROFILE_CASE:-perf/syscall}"
 else
 	APPEND="$APPEND earlyprintk=serial,ttyS0,115200"
 fi
@@ -161,7 +177,17 @@ echo 1 > /proc/sys/kernel/print-fatal-signals 2>/dev/null
 PERF_PREFIX=""
 # The payload carries the libraries L1 itself does not have.
 export LD_LIBRARY_PATH=/mnt/payload${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-if [ "$SUITE" = perf ] && [ -x /mnt/payload/perf ]; then
+
+if [ "$MODE" = profile ] && [ -x /mnt/payload/perf ]; then
+	cd /tmp || exit 1
+	echo 0 > /proc/sys/kernel/kptr_restrict
+	echo -1 > /proc/sys/kernel/perf_event_paranoid
+	# Not system-wide: L1 spends most of its time idle, and "-a" buries
+	# the switcher under pv_native_safe_halt.  Following the qemu process
+	# still catches the switcher, which runs at CPL0 in the vCPU thread.
+	say "sampling qemu's cycles at 4kHz"
+	PERF_PREFIX="/mnt/payload/perf record -e cycles:k -F 4000 -g -o /tmp/cycles.data --"
+elif [ "$SUITE" = perf ] && [ -x /mnt/payload/perf ]; then
 	# "perf kvm stat" is compiled out entirely without libtraceevent, and
 	# a perf built that way answers the subcommand with its own usage
 	# text -- which, wrapped around qemu, silently costs the whole run.
@@ -244,7 +270,21 @@ if [ "$SUITE" = perf ] && [ -d "$T" ]; then
 	grep -h "overrun" "$T/per_cpu/cpu0/stats" 2>/dev/null | sed 's/^/L1: insn: cpu0 /'
 fi
 
-if [ -n "$PERF_PREFIX" ]; then
+if [ "$MODE" = profile ] && [ -s /tmp/cycles.data ]; then
+	# No --vmlinux: L1 boots with KASLR, so the link-time addresses in the
+	# image do not match the running kernel and perf resolves nothing.
+	VM=""
+	say "--- host cycles, kernel symbols ---"
+	/mnt/payload/perf report -i /tmp/cycles.data $VM --stdio --sort symbol \
+		--percent-limit 0.4 -g none 2>/dev/null |
+		grep -vE "^#|^$" | head -28 | sed 's/^/L1: prof: /'
+
+	say "--- anything with 'switcher' in the name ---"
+	/mnt/payload/perf report -i /tmp/cycles.data $VM --stdio --sort symbol \
+		-g none 2>/dev/null | grep -i switcher | head -10 | sed 's/^/L1: prof: /'
+fi
+
+if [ -n "$PERF_PREFIX" ] && [ "$MODE" != profile ]; then
 	# The name depends on whether perf recorded host, guest or both:
 	# get_filename_for_perf_kvm() picks between .host, .guest and .kvm.
 	for f in /tmp/perf.data.guest /tmp/perf.data.kvm /tmp/perf.data.host; do
