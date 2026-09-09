@@ -216,6 +216,46 @@ its shadow page-table walks are virtualised too. On bare metal the
 fork+exec figure in particular should look different. Measuring that
 needs a machine one is willing to reboot.
 
+## Where fork+exec's 3.5x goes
+
+`perf stat` over the shadow MMU tracepoints, same run under each vendor
+(`make mmu`, or `scripts/run-l1.sh mmu pvm`):
+
+```
+                            PVM      nested KVM
+kvm_mmu_get_page          13997             332
+kvm_mmu_prepare_zap_page   7448             316
+kvm_mmu_sync_page         86862               0
+kvm_mmu_unsync_page       86862               0
+fast_page_fault               0               2
+```
+
+Two things stand out and the second is the answer.
+
+Shadow page allocation is 42x higher, which is inherent: PVM builds page
+tables the hardware would have walked for it.
+
+But sync/unsync is 86862 against **zero**, and it is a class of work EPT
+does not have at all. When the guest writes into one of its own page
+tables, the host is write-protecting that page: the write faults, the
+host marks the shadow page unsync so the guest can carry on writing, and
+later re-walks all 512 entries to re-validate them against the guest's.
+The two counts being exactly equal says every unsync is paid for with a
+resync, and 86862 syncs against 2707 `HC_LOAD_PGTBL` is about 32 resyncs
+per page-table load -- consistent with each CR3 load resyncing everything
+the guest dirtied since the last one.
+
+That is precisely the work a paravirtual MMU removes. The guest already
+tells the host about TLB operations by hypercall; what it does not tell
+it about is page-table *updates*, so the host has to discover them by
+write-protection and then reconstruct what changed. A guest that declared
+its updates would let the host skip the write-protection, the fault, the
+unsync and the resync.
+
+It is also the measurement to optimise against: `perf/parallel-fork`
+shows PVM's penalty growing from 3.85x at one vCPU to 6.40x at eight,
+which is the only figure in this document that gets worse with scale.
+
 ## The ceiling: a PVM host cannot use KPTI
 
 Measured, not inferred.  Booting L1 with `pti=on`:

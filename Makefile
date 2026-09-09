@@ -6,6 +6,7 @@
 # make stage2   guest kernel under PVM, inside L1
 # make full     stage2 with the long suites
 # make perf     the measurements, on PVM and on plain KVM, side by side
+# make mmu      shadow MMU event counts, both vendors
 
 SHELL := /bin/bash
 S     := scripts
@@ -14,7 +15,7 @@ KSRC ?= /home/aledbf/Trabajo/github/linux-aledbf
 export KSRC
 
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
-        check-rootfs stage0 stage1 stage2 full perf clean distclean
+        check-rootfs stage0 stage1 stage2 full perf mmu clean distclean
 
 help:
 	@sed -n '2,9p' Makefile | sed 's/^# \?//'
@@ -57,6 +58,12 @@ stage1: host-kernel check-rootfs initrd guest-kernel
 
 stage2: host-kernel check-rootfs initrd guest-kernel
 	@$(S)/run-l1.sh default
+
+mmu: host-kernel check-rootfs initrd guest-kernel
+	@echo "=== shadow MMU events: PVM ==="
+	@$(S)/run-l1.sh mmu pvm
+	@echo "=== shadow MMU events: ordinary nested KVM ==="
+	@$(S)/run-l1.sh mmu intel
 
 full: host-kernel check-rootfs initrd guest-kernel
 	@$(S)/run-l1.sh full

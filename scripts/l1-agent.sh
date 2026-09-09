@@ -68,6 +68,12 @@ MODE=run
 if [ "$SUITE" = profile ]; then
 	MODE=profile
 	SUITE=perf
+elif [ "$SUITE" = mmu ]; then
+	# Counts rather than samples: the shadow MMU tracepoints are far too
+	# hot to buffer, and what is wanted is how often each path is taken,
+	# not where.
+	MODE=mmu
+	SUITE=perf
 fi
 
 say "qemu: $(qemu-system-x86_64 -version 2>&1 | head -1)"
@@ -183,7 +189,12 @@ PERF_PREFIX=""
 # The payload carries the libraries L1 itself does not have.
 export LD_LIBRARY_PATH=/mnt/payload${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
-if [ "$MODE" = profile ] && [ -x /mnt/payload/perf ]; then
+if [ "$MODE" = mmu ] && [ -x /mnt/payload/perf ]; then
+	cd /tmp || exit 1
+	echo -1 > /proc/sys/kernel/perf_event_paranoid
+	say "counting shadow MMU events"
+	PERF_PREFIX="/mnt/payload/perf stat -a -o /tmp/mmu.txt -e kvmmmu:kvm_mmu_get_page,kvmmmu:kvm_mmu_prepare_zap_page,kvmmmu:kvm_mmu_sync_page,kvmmmu:kvm_mmu_unsync_page,kvmmmu:fast_page_fault,kvm:kvm_hypercall --"
+elif [ "$MODE" = profile ] && [ -x /mnt/payload/perf ]; then
 	cd /tmp || exit 1
 	echo 0 > /proc/sys/kernel/kptr_restrict
 	echo -1 > /proc/sys/kernel/perf_event_paranoid
@@ -273,6 +284,11 @@ if [ "$SUITE" = perf ] && [ -d "$T" ]; then
 
 	say "--- dropped by the trace buffer ---"
 	grep -h "overrun" "$T/per_cpu/cpu0/stats" 2>/dev/null | sed 's/^/L1: insn: cpu0 /'
+fi
+
+if [ "$MODE" = mmu ] && [ -s /tmp/mmu.txt ]; then
+	say "--- shadow MMU event counts ---"
+	grep -E "kvmmmu:|kvm:|seconds" /tmp/mmu.txt | sed 's/^/L1: mmu: /'
 fi
 
 if [ "$MODE" = profile ] && [ -s /tmp/cycles.data ]; then
