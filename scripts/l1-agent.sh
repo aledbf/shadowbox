@@ -19,19 +19,23 @@ say() { echo "L1: $*"; }
 say "kernel: $(uname -r)"
 say "cpu: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
 
-# CONFIG_KVM_PVM is built in, not a module, in the host configuration the
-# testbed builds -- so modprobe failing here means nothing on its own and
-# /dev/kvm below is the real answer.  Piping through sed would have hidden
-# modprobe's status behind sed's, so capture it first.
-out="$(modprobe kvm-pvm 2>&1)"; rc=$?
-[ -n "$out" ] && echo "$out" | sed 's/^/L1: modprobe: /'
-say "modprobe kvm-pvm: exit $rc"
+# Which vendor to run under.  Both are modules and both travel on the
+# payload share, because the rootfs is bootstrapped once and the kernel
+# version string -- and so the path modprobe would search -- moves with
+# every commit.  insmod by path sidesteps that entirely.
+VENDOR="$(sed -n 's/.*pvmtest\.vendor=\([^ ]*\).*/\1/p' /proc/cmdline)"
+VENDOR="${VENDOR:-pvm}"
+case "$VENDOR" in
+pvm)   mod=/mnt/payload/kvm-pvm.ko ;;
+intel) mod=/mnt/payload/kvm-intel.ko ;;
+*)     say "unknown vendor: $VENDOR"; poweroff -f ;;
+esac
 
-if lsmod | grep -q '^kvm_pvm'; then
-	say "kvm-pvm loaded as a module"
-else
-	say "kvm-pvm is not a module (built in, in this configuration)"
+say "loading $VENDOR from $mod"
+if ! insmod "$mod" 2>&1 | sed 's/^/L1: insmod: /'; then
+	say "insmod failed"
 fi
+lsmod | grep -E '^kvm' | sed 's/^/L1: lsmod: /'
 
 dmesg | grep -i -E 'pvm|kvm' | tail -40 | sed 's/^/L1: dmesg: /'
 
@@ -66,7 +70,16 @@ if [ -d "$T" ]; then
 	echo 1 > "$T/tracing_on" 2>/dev/null
 fi
 
-APPEND="console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 panic=-1 oops=panic pvmtest.suite=$SUITE pvmtest.tag=pvm-guest pvmtest.expect=pvm"
+case "$SUITE" in
+full|perf|all) GUEST_TIMEOUT=1800 ;;
+*)          GUEST_TIMEOUT=120 ;;
+esac
+say "guest timeout: ${GUEST_TIMEOUT}s"
+
+APPEND="console=ttyS0,115200 earlyprintk=serial,ttyS0,115200 panic=-1 oops=panic pvmtest.suite=$SUITE pvmtest.tag=$VENDOR-guest"
+# Only a PVM run must have relocated itself; under kvm-intel the same
+# image is an ordinary guest and belongs at the usual address.
+[ "$VENDOR" = pvm ] && APPEND="$APPEND pvmtest.expect=pvm"
 
 # Two machine types, because they differ in exactly the way that matters.
 #
@@ -85,7 +98,10 @@ run_guest() { # $1=tag, rest=machine args
 	say "=== booting the PVM guest on $tag ==="
 	# Bounded, so that a guest that wedges its vCPU thread does not take
 	# the whole agent down with it and cost us the host side diagnostics.
-	timeout -k 5 45 qemu-system-x86_64 "$@" \
+	# The bound has to fit the suite: the stress and perf cases allow
+	# themselves several minutes each, and 45s was chosen back when the
+	# guest was dying in under a second.
+	timeout -k 5 "$GUEST_TIMEOUT" qemu-system-x86_64 "$@" \
 		-cpu host -smp 2 -m 1G \
 		-kernel /mnt/payload/guest-vmlinux \
 		-initrd /mnt/payload/initrd.cpio.gz \

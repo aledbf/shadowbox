@@ -60,7 +60,43 @@ PVMTEST-RESULT: ok tag=regress-bzimage-smoke  suite=smoke   pass=11 fail=0
 PVMTEST-RESULT: ok tag=regress-pvh-default    suite=default pass=31 fail=0
 ```
 
-Not yet run: `make full` and `make perf`.
+`make full` passes too: 34 of 34, including the process-churn and
+fault-storm cases.
+
+`make perf`, on the same machine, same guest, same host kernel, same
+nesting depth -- only the KVM vendor module differs between the last two
+columns:
+
+```
+metric                                 KVM (L0)     KVM (L1)     PVM (L1)  PVM/KVM
+perf/context-switch.ns_per_roundtrip        317.9        494.1        433.2    0.88x
+perf/fork-exec.us_per_fork_exec             302.9        645.7       2221.7    3.44x
+perf/page-fault.ns_per_fault                891.5       8849.7       6648.3    0.75x
+perf/syscall.ns_per_getpid                   59.1         62.3        206.0    3.31x
+```
+
+Read the two L1 columns against each other. The L0 column is there to
+show what the nesting itself costs, and it is not small: an ordinary KVM
+guest's page faults go from 891ns to 8850ns once its host is itself a
+guest, because nested EPT has to be walked twice.
+
+PVM beats nested KVM on exactly the axis it claims to: page faults
+(0.75x) and context switches (0.88x), because it shadows page tables
+rather than nesting EPT. It loses on fork+exec (3.4x), which is address
+spaces being created and torn down, the most expensive thing a shadow
+MMU does.
+
+The syscall number is the one to look at next. PVM's premise is that a
+guest syscall is a direct user-to-supervisor switch that never leaves the
+guest, so 206ns against 62ns is three times more than that premise
+allows. Either the direct switch is being inhibited and every syscall is
+taking a full exit to the PVM host, or the switcher's path is costing far
+more than it should. Nothing here has been profiled yet.
+
+These numbers are all under nesting: the PVM host itself runs in a VM, so
+its shadow page-table walks are virtualised too. On bare metal the
+fork+exec figure in particular should look different. Measuring that
+needs a machine one is willing to reboot.
 
 ## Known gaps in the port
 

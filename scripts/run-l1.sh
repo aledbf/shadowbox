@@ -9,6 +9,10 @@ source "$(dirname "$0")/lib.sh"
 check_run_deps
 
 suite="${1:-default}"
+# Which KVM vendor L1 should load.  "pvm" is the point of the exercise;
+# "intel" runs the same guest under ordinary nested KVM, which is the only
+# honest baseline for a perf comparison.
+vendor="${2:-pvm}"
 [ -f "$OUT/images/host-bzImage" ]   || die "no host kernel -- run 'make host-kernel'"
 [ -f "$OUT/images/l1-rootfs.ext4" ] || die "no L1 rootfs -- run 'make rootfs'"
 
@@ -20,19 +24,29 @@ trap 'rm -rf "$payload"' EXIT
 cp "$OUT/images/guest-vmlinux" "$OUT/images/initrd.cpio.gz" "$payload/"
 install -m 0755 "$TESTBED/scripts/l1-agent.sh" "$payload/agent.sh"
 
-mkdir -p "$OUT/logs"
-log_file="$OUT/logs/l1-$suite.log"
+# The KVM modules travel with the payload rather than in the image: the
+# rootfs is bootstrapped once, and the kernel's version string -- and so
+# the path modprobe would look under -- changes with every commit.
+find "$OUT/modules-host" -name 'kvm*.ko*' -exec cp {} "$payload/" \; 2>/dev/null || true
 
-log "booting L1 (PVM host), suite=$suite"
+mkdir -p "$OUT/logs"
+log_file="$OUT/logs/l1-$suite${2:+-$vendor}.log"
+
+log "booting L1 (KVM vendor=$vendor), suite=$suite"
 set +e
-timeout --foreground -k 5 "$((BOOT_TIMEOUT * 3))" \
+case "$suite" in
+full|perf|all) l1_timeout=2400 ;;
+*)             l1_timeout=$((BOOT_TIMEOUT * 3)) ;;
+esac
+
+timeout --foreground -k 5 "$l1_timeout" \
 	"$QEMU" \
 	-machine q35,accel=kvm \
 	-cpu host \
 	-smp "$L1_CPUS" -m "$L1_MEM" \
 	-kernel "$OUT/images/host-bzImage" \
 	-drive file="$OUT/images/l1-rootfs.ext4",if=virtio,format=raw \
-	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite \
+	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite pvmtest.vendor=$vendor \
 systemd.mask=serial-getty@ttyS0.service systemd.show_status=false" \
 	-virtfs local,path="$payload",mount_tag=payload,security_model=none,readonly=on \
 	-nographic -no-reboot -display none -serial mon:stdio \

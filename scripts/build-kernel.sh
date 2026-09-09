@@ -31,7 +31,7 @@ make -C "$KSRC" O="$B" -s olddefconfig
 want=(CONFIG_SERIAL_8250_CONSOLE=y)
 case "$role" in
 guest) want+=(CONFIG_PVM_GUEST=y CONFIG_X86_PIE=y CONFIG_PVH=y) ;;
-host)  want+=(CONFIG_KVM_PVM=y) ;;
+host)  want+=(CONFIG_KVM_PVM=m CONFIG_KVM_INTEL=m) ;;
 esac
 for opt in "${want[@]}"; do
 	grep -qx "$opt" "$B/.config" || die "$role: $opt did not survive olddefconfig"
