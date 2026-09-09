@@ -173,6 +173,29 @@ its shadow page-table walks are virtualised too. On bare metal the
 fork+exec figure in particular should look different. Measuring that
 needs a machine one is willing to reboot.
 
+## The ceiling: a PVM host cannot use KPTI
+
+Measured, not inferred.  Booting L1 with `pti=on`:
+
+```
+kvm_pvm: Support for host KPTI is not included yet.
+insmod: ERROR: could not insert module: Operation not supported
+```
+
+It is an explicit refusal in `pvm_init()`, and the switcher's CR3 macros
+are `ALTERNATIVE`d out under `X86_FEATURE_PTI` to match.  The reason is in
+`calling.h`: the switcher would have to reach the host CR3 in the IST path
+before GSBASE is fixed up, and the obvious way to do that reads the TSS
+through the CPU entry area -- which an SEV guest breaks by rewriting
+TSS.IST at run time.
+
+Everything in this document works because this machine's CPU reports
+`meltdown: Not affected`, so PTI is off and the switcher is live.  On a
+Meltdown-affected host -- Intel before roughly 2019 -- PTI is on by
+default and **PVM cannot run at all**.  For the "better than what cloud
+providers have now" question this is the first gate, ahead of any
+performance number.
+
 ## Known gaps in the port
 
 - `arch/x86/boot/compressed/` has not been ported, so the bzImage path

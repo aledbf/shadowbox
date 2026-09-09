@@ -45,6 +45,8 @@ if [ ! -e /dev/kvm ]; then
 	poweroff -f
 fi
 say "/dev/kvm present"
+say "host PTI: $(cat /sys/devices/system/cpu/vulnerabilities/meltdown 2>/dev/null)"
+say "host pti flag: $(grep -o ' pti' /proc/cpuinfo | head -1 || echo 'not set')"
 
 # The payload share is already mounted: the stub in the image did it
 # before exec'ing this script, which is how this script got here at all.
