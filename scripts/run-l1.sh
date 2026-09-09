@@ -65,9 +65,10 @@ timeout --foreground -k 5 "$l1_timeout" \
 	-smp "$L1_CPUS" -m "$L1_MEM" \
 	-kernel "$OUT/images/host-bzImage" \
 	-drive file="$OUT/images/l1-rootfs.ext4",if=virtio,format=raw \
-	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite pvmtest.vendor=$vendor ${PROFILE_CASE:+pvmtest.profile_case=$PROFILE_CASE} ${GUEST_APPEND:+pvmtest.guest_append=$GUEST_APPEND} ${L1_APPEND:-} \
+	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite pvmtest.vendor=$vendor ${PROFILE_CASE:+pvmtest.profile_case=$PROFILE_CASE} ${GUEST_APPEND:+pvmtest.guest_append=$GUEST_APPEND} ${MOD_ARGS:+pvmtest.mod_args=$MOD_ARGS} ${L1_APPEND:-} \
 systemd.mask=serial-getty@ttyS0.service systemd.show_status=false" \
 	-virtfs local,path="$payload",mount_tag=payload,security_model=none,readonly=on \
+	${L1_QEMU_DEBUG:+-d $L1_QEMU_DEBUG -D $OUT/logs/l1-qemu-debug.log} \
 	-nographic -no-reboot -display none -serial mon:stdio \
 	< /dev/null 2>&1 | tee "$log_file"
 rc=${PIPESTATUS[0]}

@@ -25,14 +25,15 @@ say "cpu: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
 # every commit.  insmod by path sidesteps that entirely.
 VENDOR="$(sed -n 's/.*pvmtest\.vendor=\([^ ]*\).*/\1/p' /proc/cmdline)"
 VENDOR="${VENDOR:-pvm}"
+MOD_ARGS="$(sed -n 's/.*pvmtest\.mod_args=\([^ ]*\).*/\1/p' /proc/cmdline | tr , ' ')"
 case "$VENDOR" in
 pvm)   mod=/mnt/payload/kvm-pvm.ko ;;
 intel) mod=/mnt/payload/kvm-intel.ko ;;
 *)     say "unknown vendor: $VENDOR"; poweroff -f ;;
 esac
 
-say "loading $VENDOR from $mod"
-if ! insmod "$mod" 2>&1 | sed 's/^/L1: insmod: /'; then
+say "loading $VENDOR from $mod ${MOD_ARGS:-}"
+if ! insmod "$mod" ${MOD_ARGS:-} 2>&1 | sed 's/^/L1: insmod: /'; then
 	say "insmod failed"
 fi
 lsmod | grep -E '^kvm' | sed 's/^/L1: lsmod: /'
