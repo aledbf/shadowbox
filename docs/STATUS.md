@@ -428,6 +428,44 @@ covered, so the tool now refuses to make the claim rather than making it
 wrongly — but a human reading two sweeps still has to apply the floor
 above.
 
+## objtool: what is left, and what each one is
+
+A PIE build with `PVM_GUEST=n` and `KVM_PVM=n` produces exactly **one**
+warning. So of the five this port used to carry, one belongs to the PIE
+series and four belonged to the PVM guest. An earlier version of this
+document had that backwards.
+
+Two of the four are fixed: `pvm_early_event` and `irqentry_enter` reported
+"RET before UNTRAIN", and they were right — the guest's event entry paths
+called into C without `IBRS_ENTER`/`UNTRAIN_RET`/`CLEAR_BRANCH_HISTORY`,
+which every native entry runs first. Adding them removed both warnings,
+because the untraining is now actually there.
+
+Three remain:
+
+**`___bpf_prog_run+0x2: ignoring unreachables due to jump table quirk`** —
+PIE's, not PVM's. Present with `PVM_GUEST=n`. Belongs to whoever upstreams
+the PIE series.
+
+**`entry_SYSCALL_64+0x39: stack state mismatch: cfa1=-1+0 cfa2=4-128`** —
+the PVM guest's, and localised but not fixed. `entry_SYSCALL_64_pvm` jumps
+into the middle of `entry_SYSCALL_64` at
+`entry_SYSCALL_64_after_hwframe`, twice: once directly when there is no
+async exception, and once after handling one. Cutting both jumps and
+pointing them at a local `ud2` moves the warning to
+`entry_SYSCALL_64_pvm` itself with `cfa1=4+0 cfa2=4-128`, which proves it
+is the PVM path and that the two predecessors disagree with each other,
+not merely with the native path. `PUSH_IRET_FRAME_FROM_PVCS` switches
+stacks, which loses objtool's CFA. An `UNWIND_HINT_IRET_REGS` after the
+frame is complete was tried and did **not** resolve it — it changed `cfa2`
+and left `cfa1` undefined — so it was reverted rather than left in place
+as an annotation that does not describe the flow.
+
+**`pvm_event+0x6a: call to {dynamic}() leaves .noinstr.text section`** —
+the PVM guest's. The indirect dispatch out of `pvm_event`. Every current
+target was verified to be `noinstr`, so this is regression-prevention
+rather than a live gap.
+
 ## Known gaps in the port
 
 - `arch/x86/boot/compressed/` has not been ported, so the bzImage path

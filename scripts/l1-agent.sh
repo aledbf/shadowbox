@@ -25,6 +25,10 @@ say "cpu: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
 # every commit.  insmod by path sidesteps that entirely.
 VENDOR="$(sed -n 's/.*pvmtest\.vendor=\([^ ]*\).*/\1/p' /proc/cmdline)"
 VENDOR="${VENDOR:-pvm}"
+# Read early: the "no /dev/kvm" bail below is a failure for every suite
+# except the one whose whole point is that the module refuses.
+SUITE="$(sed -n 's/.*pvmtest\.suite=\([^ ]*\).*/\1/p' /proc/cmdline)"
+SUITE="${SUITE:-default}"
 GUEST_CPUS="$(sed -n 's/.*pvmtest\.guest_cpus=\([^ ]*\).*/\1/p' /proc/cmdline)"
 GUEST_CPUS="${GUEST_CPUS:-2}"
 GUEST_MEM="$(sed -n 's/.*pvmtest\.guest_mem=\([^ ]*\).*/\1/p' /proc/cmdline)"
@@ -44,6 +48,24 @@ lsmod | grep -E '^kvm' | sed 's/^/L1: lsmod: /'
 
 dmesg | grep -i -E 'pvm|kvm' | tail -40 | sed 's/^/L1: dmesg: /'
 
+if [ "$SUITE" = failclosed ]; then
+	# The module is expected to refuse.  What is checked is that it says
+	# why, that it leaves no /dev/kvm behind, and that the host is still
+	# healthy -- a refusal that half-registered would be worse than a
+	# panic, because nothing would notice.
+	say "=== expecting $VENDOR to refuse to load ==="
+	if lsmod | grep -q '^kvm_pvm'; then
+		echo "FAILCLOSED: fail reason=module-stayed-loaded"
+	elif [ -e /dev/kvm ]; then
+		echo "FAILCLOSED: fail reason=kvm-device-present"
+	else
+		echo "FAILCLOSED: ok reason=refused"
+	fi
+	say "--- what it said ---"
+	dmesg | grep -iE 'kvm|pvm' | tail -20 | sed 's/^/L1: dmesg: /'
+	poweroff -f
+fi
+
 if [ ! -e /dev/kvm ]; then
 	say "no /dev/kvm -- the PVM host did not register"
 	echo "PVMTEST-RESULT: fail stage=1 reason=no-kvm-device"
@@ -57,9 +79,6 @@ say "host pti flag: $(grep -o ' pti' /proc/cpuinfo | head -1 || echo 'not set')"
 # before exec'ing this script, which is how this script got here at all.
 # Mounting it a second time fails with "no channels available for device
 # payload", and this script used to treat that as fatal.
-
-SUITE="$(sed -n 's/.*pvmtest\.suite=\([^ ]*\).*/\1/p' /proc/cmdline)"
-SUITE="${SUITE:-default}"
 
 # "profile" runs the guest's perf suite but samples the host's cycles
 # rather than counting the guest's exits.  The switcher executes at CPL0

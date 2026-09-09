@@ -9,6 +9,7 @@
 # make mmu      shadow MMU event counts, both vendors
 # make quick    regress + stage2, the shortest thing worth running
 # make security negative tests -- on plain KVM and under PVM -- + sanitize
+# make failclosed  the cases where kvm-pvm must refuse to load
 # make hosttests   the KVM-API side: PVM MSRs, PVCS pinning, memslot churn,
 #                  plus a subset of the kernel's own KVM selftests
 # make sanitize scan every log kept under out/logs for kernel complaints
@@ -25,7 +26,8 @@ export KSRC
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
         host-sanitize-log security soak perf-matrix perf-baseline \
-        hosttests build-hosttests build-kvm-selftests clean distclean
+        hosttests build-hosttests build-kvm-selftests failclosed \
+        clean distclean
 
 # How many times "make soak" repeats stage 2.
 SOAK ?= 10
@@ -114,6 +116,11 @@ hosttests: host-kernel check-rootfs initrd guest-kernel build-hosttests build-kv
 	@$(S)/check-selftests.sh out/logs/l1-hosttests-pvm.log pvm
 	@$(S)/check-selftests.sh out/logs/l1-hosttests-intel.log intel
 	@$(S)/sanitize-log.sh
+
+# Refusing to load is a feature, and one that has to be checked by
+# creating the condition rather than by reading hardware_cap_check().
+failclosed: host-kernel check-rootfs initrd guest-kernel
+	@$(S)/run-failclosed.sh
 
 security: guest-kernel initrd host-kernel check-rootfs
 	@echo "=== negative tests: plain KVM, one layer ==="
