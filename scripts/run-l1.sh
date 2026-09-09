@@ -36,7 +36,12 @@ timeout --foreground -k 5 "$((BOOT_TIMEOUT * 3))" \
 rc=${PIPESTATUS[0]}
 set -e
 
-[ "$rc" -eq 124 ] || [ "$rc" -eq 137 ] && die "L1 timed out -- see $log_file"
+# Written as an if: "a || b && die" is (a||b) && die, whose status is 1
+# when the boot did *not* time out, and under set -e that exits here on
+# every successful run.
+if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+	die "L1 timed out -- see $log_file"
+fi
 
 if grep -q '^G: PVMTEST-RESULT: ok ' "$log_file"; then
 	log "PVM guest: $(grep -m1 '^G: PVMTEST-RESULT:' "$log_file")"

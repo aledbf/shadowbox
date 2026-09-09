@@ -13,15 +13,18 @@ say() { echo "L1: $*"; }
 say "kernel: $(uname -r)"
 say "cpu: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2-)"
 
-if ! modprobe kvm-pvm 2>&1 | sed 's/^/L1: modprobe: /'; then
-	say "kvm-pvm did not load"
-fi
+# CONFIG_KVM_PVM is built in, not a module, in the host configuration the
+# testbed builds -- so modprobe failing here means nothing on its own and
+# /dev/kvm below is the real answer.  Piping through sed would have hidden
+# modprobe's status behind sed's, so capture it first.
+out="$(modprobe kvm-pvm 2>&1)"; rc=$?
+[ -n "$out" ] && echo "$out" | sed 's/^/L1: modprobe: /'
+say "modprobe kvm-pvm: exit $rc"
 
 if lsmod | grep -q '^kvm_pvm'; then
-	say "kvm-pvm loaded"
+	say "kvm-pvm loaded as a module"
 else
-	# Built in rather than a module is fine, as long as it registered.
-	say "kvm-pvm not in lsmod (built in?)"
+	say "kvm-pvm is not a module (built in, in this configuration)"
 fi
 
 dmesg | grep -i -E 'pvm|kvm' | tail -40 | sed 's/^/L1: dmesg: /'

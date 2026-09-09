@@ -1,8 +1,15 @@
 # PVM testbed
 
 Builds the two kernels the PVM port needs and runs a suite against them.
-Nothing here needs root, and nothing here touches this machine's running
-kernel.
+Nothing here touches this machine's running kernel.
+
+Only one step can need root, and only on some machines: building the L1
+root filesystem. `mmdebstrap` does it unprivileged where unprivileged
+user namespaces are allowed, but Ubuntu 24.04 and later restrict those by
+default. `scripts/build-rootfs.sh` picks between `unshare`, `fakechroot`
+and `root`, says which it picked, and chowns its output back to the
+invoking user when it ran under sudo. Everything else — both kernel
+builds, the initrd, and every boot — runs as you.
 
 ## The shape of it
 
