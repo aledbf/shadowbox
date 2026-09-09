@@ -98,12 +98,32 @@ the one number that says whether the early relocation ran. Stage 0
 expects the usual address; stage 2 passes `pvmtest.expect=pvm` and
 `pvm/relocated` turns it into a hard failure.
 
+## The host side
+
+`make hosttests` runs two things inside L1, against the loaded vendor
+module, with no guest of ours involved:
+
+- `hosttests/pvm_abi_test.c`, which drives `/dev/kvm` directly. The PVM
+  MSRs, the PVCS pinning and the memslot lifetime around it are reachable
+  only from the VMM; the guest-side suite runs at guest CPL3 and cannot
+  touch any of it.
+- a curated subset of the kernel's own KVM selftests, listed in
+  `configs/kvm-selftests.txt`, with the outcome of each recorded per
+  vendor in `configs/kvm-selftests-expect.txt`. Any difference from the
+  recorded outcome fails the run — including a test that starts *passing*,
+  which means a gap closed and the file now says the opposite of the
+  truth.
+
+Both vendors are run, because a selftest that behaves identically under
+`kvm-intel` is telling us about the testbed rather than about PVM.
+
 ## What is not covered
 
-Nothing here checks the host side from the host's own point of view:
-there are no kvm-unit-tests, no KVM selftests, and no check that a PVM
-guest cannot reach host memory. Those want a different harness, and the
-security argument in particular wants review rather than a test run.
+There are still no kvm-unit-tests.
+
+`make security` checks that a guest user process cannot reach guest kernel
+memory or the host's window, but the security argument as a whole wants
+review rather than a test run.
 
 The performance numbers are guest-visible only. Where the cost actually
 lands — host CPU spent in the shadow MMU — needs `perf` on L1, not a

@@ -9,7 +9,8 @@
 # make mmu      shadow MMU event counts, both vendors
 # make quick    regress + stage2, the shortest thing worth running
 # make security negative tests -- on plain KVM and under PVM -- + sanitize
-# make hosttests   the KVM-API side: PVM MSRs, PVCS pinning, memslot churn
+# make hosttests   the KVM-API side: PVM MSRs, PVCS pinning, memslot churn,
+#                  plus a subset of the kernel's own KVM selftests
 # make sanitize scan every log kept under out/logs for kernel complaints
 # make soak     stage2 N times over, then sanitize the lot
 # make perf-matrix   perf across 1/2/8/16 vCPUs, both vendors, medians
@@ -24,7 +25,7 @@ export KSRC
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
         host-sanitize-log security soak perf-matrix perf-baseline \
-        hosttests build-hosttests clean distclean
+        hosttests build-hosttests build-kvm-selftests clean distclean
 
 # How many times "make soak" repeats stage 2.
 SOAK ?= 10
@@ -98,11 +99,20 @@ perf: guest-kernel initrd host-kernel check-rootfs
 build-hosttests: host-kernel
 	@$(S)/build-hosttests.sh
 
+build-kvm-selftests: host-kernel
+	@$(S)/build-kvm-selftests.sh
+
 # The VMM-facing side.  Nothing here boots a guest: the PVM MSRs and the
 # PVCS pinning are reachable only through the KVM API, and the guest-side
 # suite runs at guest CPL3 where none of it exists.
-hosttests: host-kernel check-rootfs initrd guest-kernel build-hosttests
+# Both vendors, because a selftest that behaves identically under
+# kvm-intel is telling us about the testbed rather than about PVM.  That
+# is how set_memory_region_test was kept out of the PVM findings.
+hosttests: host-kernel check-rootfs initrd guest-kernel build-hosttests build-kvm-selftests
 	@$(S)/run-l1.sh hosttests pvm
+	@$(S)/run-l1.sh hosttests intel
+	@$(S)/check-selftests.sh out/logs/l1-hosttests-pvm.log pvm
+	@$(S)/check-selftests.sh out/logs/l1-hosttests-intel.log intel
 	@$(S)/sanitize-log.sh
 
 security: guest-kernel initrd host-kernel check-rootfs

@@ -1,0 +1,76 @@
+# What each KVM selftest is expected to do, per vendor.
+#
+#   <test>  <vendor>  <pass|skip|fail>  <reason>
+#
+# Anything that comes out differently fails the run.  That is the whole
+# point: "PVM does not support this" is a fact worth recording once and
+# then holding still, and an unexplained change in either direction --
+# something that starts failing, or something that starts passing -- is
+# news.
+#
+# Delete an entry when the gap closes.  Do not edit one to match a new
+# result without understanding why it changed.
+#
+# Measured on 2026-09-09 against v7.3-rc2 + the PVM port, in L1 on an
+# i9-13900HK.  Every PVM row was taken with the kvm-intel row beside it,
+# because a test that behaves identically under both vendors is telling
+# us about the testbed rather than about PVM.
+
+# --- passes under both.  These are the ones carrying real signal. ------
+dirty_log_test			pvm	pass	shadow MMU write tracking
+dirty_log_test			intel	pass
+kvm_binary_stats_test		pvm	pass	stats plumbing
+kvm_binary_stats_test		intel	pass
+kvm_create_max_vcpus		pvm	pass	vCPU lifetime
+kvm_create_max_vcpus		intel	pass
+kvm_page_table_test		pvm	pass	shadow MMU
+kvm_page_table_test		intel	pass
+memslot_modification_stress_test pvm	pass	memslot churn, which PVM pins the PVCS against
+memslot_modification_stress_test intel	pass
+x86/debug_regs			pvm	pass	DR handling through the switcher
+x86/debug_regs			intel	pass
+x86/max_vcpuid_cap_test		pvm	pass
+x86/max_vcpuid_cap_test		intel	pass
+x86/state_test			pvm	pass	vCPU state round trip
+x86/state_test			intel	pass
+x86/sync_regs_test		pvm	pass	KVM_SYNC_X86_REGS against the switcher's save/restore
+x86/sync_regs_test		intel	pass
+
+# --- fails under both: the testbed, not PVM ---------------------------
+# "MMIO during vectoring error handling" wants KVM_EXIT_INTERNAL_ERROR and
+# gets KVM_EXIT_SHUTDOWN.  It does this under kvm-intel too, where L1 is
+# itself a nested guest, so this says nothing about PVM.  Worth revisiting
+# if the harness ever runs on bare metal.
+set_memory_region_test		pvm	fail	fails identically under kvm-intel: nesting artefact
+set_memory_region_test		intel	fail	same
+
+# --- declared PVM gaps ------------------------------------------------
+# PVM advertises neither capability, so the tests skip themselves rather
+# than failing.  Both are known and listed in docs/STATUS.md.
+pre_fault_memory_test		pvm	skip	no KVM_CAP_PRE_FAULT_MEMORY
+pre_fault_memory_test		intel	pass
+x86/smm_test			pvm	skip	no KVM_CAP_X86_SMM -- PVM stubs SMM
+x86/smm_test			intel	pass
+
+# --- real PVM differences, not yet explained --------------------------
+# Each of these passes under kvm-intel in the same L1, on the same guest
+# image, and fails under PVM.  They are recorded as expected failures so
+# the suite is usable, not because they are acceptable.
+#
+# cr4_cpuid_sync_test: after the guest sets CR4.OSXSAVE, CPUID.1:ECX[27]
+# still reads back clear.  Suggests PVM's CR4 write path does not run the
+# runtime CPUID update.
+x86/cr4_cpuid_sync_test		pvm	fail	OSXSAVE not reflected in CPUID after CR4 write
+x86/cr4_cpuid_sync_test		intel	pass
+
+# kvm_pv_test: writing MSR_KVM_SYSTEM_TIME triple faults the guest
+# (KVM_EXIT_SHUTDOWN) where the test expects to reach its ucall.
+x86/kvm_pv_test			pvm	fail	MSR_KVM_SYSTEM_TIME write triple faults
+x86/kvm_pv_test			intel	pass
+
+# userspace_msr_exit_test: msr_filter_allow expects KVM_EXIT_X86_RDMSR and
+# gets KVM_EXIT_SHUTDOWN.  The other three subtests pass, so the filter
+# itself works; what does not is the exit to userspace, which suggests
+# PVM's MSR paths bypass kvm_msr_user_space().
+x86/userspace_msr_exit_test	pvm	fail	MSR filter userspace exit does not happen
+x86/userspace_msr_exit_test	intel	pass

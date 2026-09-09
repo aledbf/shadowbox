@@ -1,0 +1,43 @@
+# Which of the kernel's own KVM selftests to run in L1 against the loaded
+# vendor module.
+#
+# One path per line, relative to tools/testing/selftests/kvm.  Blank lines
+# and '#' comments ignored.  Each entry says why it is here: a selftest
+# that exercises nothing PVM touches is 1.2MB of payload and a minute of
+# runtime for no information.
+#
+# The honest caveat: these build a guest that expects to run at CPL0 with
+# its own page tables, which is not what a PVM VM provides.  Many will
+# not pass, and that is the point of configs/kvm-selftests-expect.txt --
+# "unsupported" should be a recorded outcome, not noise.
+
+# Memslot lifetime.  The reason this list exists: PVM pins the PVCS page
+# and re-pins it from KVM_REQ_GPC_REFRESH when the map changes.
+set_memory_region_test
+memslot_modification_stress_test
+
+# The shadow MMU, which PVM uses instead of EPT/NPT.
+dirty_log_test
+kvm_page_table_test
+pre_fault_memory_test
+
+# vCPU state round trips, which is where the switcher's register save and
+# restore would show up.
+x86/state_test
+x86/sync_regs_test
+x86/kvm_pv_test
+x86/cr4_cpuid_sync_test
+x86/debug_regs
+
+# The MSR path PVM replaces wholesale.
+x86/userspace_msr_exit_test
+
+# VM and vCPU lifetime.
+kvm_create_max_vcpus
+kvm_binary_stats_test
+x86/max_vcpuid_cap_test
+
+# Known-unsupported, kept deliberately: PVM stubs SMM and implements no
+# nested virtualisation, and a recorded "fails, and here is why" is worth
+# more than silence.
+x86/smm_test

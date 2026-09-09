@@ -95,6 +95,32 @@ if [ "$MODE" = hosttests ]; then
 		say "$(basename "$t") exited $r"
 		[ "$r" = 0 ] || rc=1
 	done
+	# The kernel's own KVM selftests, if any were staged.  Their verdict
+	# is not folded into rc: they build a guest that expects CPL0 and its
+	# own page tables, so what they do under PVM is a question rather
+	# than an assertion.  The outcome of each is reported by name and
+	# classified outside, against configs/kvm-selftests-expect.txt.
+	#
+	# Exit codes are the kselftest convention: 0 pass, 4 skip, anything
+	# else a failure.
+	for t in /mnt/payload/kvm-selftests/*; do
+		[ -x "$t" ] || continue
+		found=1
+		name=$(basename "$t" | sed 's/__/\//')
+		timeout -k 5 300 "$t" > /tmp/st.log 2>&1
+		r=$?
+		case $r in
+		0)   verdict=pass ;;
+		4)   verdict=skip ;;
+		124|137) verdict=timeout ;;
+		*)   verdict=fail ;;
+		esac
+		echo "SELFTEST: $name $verdict rc=$r"
+		# Only the tail, and only when it did not pass: a passing
+		# selftest's output is pages of nothing anyone will read.
+		[ "$verdict" = pass ] || tail -15 /tmp/st.log | sed "s|^|S[$name]: |"
+	done
+
 	if [ "$found" = 0 ]; then
 		say "no host tests in the payload"
 		echo "PVMTEST-RESULT: fail stage=hosttests reason=no-tests"
