@@ -29,35 +29,38 @@ Two results are worth reading rather than counting:
   to be somewhere else, and `pvm/relocated` says so once
   `pvmtest.expect=pvm` is passed.
 
-Stage 1 passes: the host kernel boots in L1, `kvm-pvm` registers, and
-`/dev/kvm` appears. `kvm_x86_vendor_init()` WARNs 15 times on the way for
-kvm_x86_ops the PVM backend does not implement -- see below.
-
-Stage 2 reaches the switcher and dies there. The guest now gets through
-SeaBIOS, through the PVH entry, sets EFER.LME and enters long mode:
+**Stage 2 passes.** A PVM guest boots to user space and passes the
+default suite under a PVM host:
 
 ```
-kvm_msr: msr_write c0000080 = 0x100        EFER.LME
-kvm_entry: vcpu 0, rip 0x36e9ca7           pvh_start_xen+0xd7
+PVMTEST-RESULT: ok tag=pvm-guest suite=smoke   pass=11 fail=0
+PVMTEST-RESULT: ok tag=pvm-guest suite=default pass=31 fail=0
+#   _text = 0xffffc2ff81000000
+#   kernel was relocated out of the top 2GB: PVM early relocation ran
 ```
 
-`pvh_start_xen+0xd7` is the first instruction after the `lret` into
-64-bit mode, so `try_to_convert_to_pvm_mode()` has taken the vCPU out of
-the bootstrap mode and that `kvm_entry` is the first time the switcher
-has ever run. What happens next is that **qemu segfaults**:
+So the switcher works. The guest runs at hardware CPL3 under shadow
+paging, and `pvm/relocated` -- which is a hard failure when the harness
+says this is a PVM run -- confirms the kernel is outside the 2GB the
+hypervisor withholds. `entry/ptrace-singlestep` passes too: 2000 steps,
+which is the only case that exercises the switcher's SINGLE_STEP
+inhibitor.
+
+Stage 1 passes as a matter of course: the host kernel boots in L1,
+`kvm-pvm` registers, and `/dev/kvm` appears. `kvm_x86_vendor_init()`
+WARNs 15 times on the way for kvm_x86_ops the PVM backend does not
+implement -- see below.
+
+Stage 0 passes on both entry paths, so the same image is still an
+ordinary kernel:
 
 ```
-asm_exc_page_fault -> irqentry_exit -> arch_do_signal_or_restart
-  -> get_signal -> vfs_coredump -> schedule
-BUG: scheduling while atomic: qemu-system-x86/229/0x00000002
+PVMTEST-RESULT: ok tag=regress-pvh-smoke      suite=smoke   pass=11 fail=0
+PVMTEST-RESULT: ok tag=regress-bzimage-smoke  suite=smoke   pass=11 fail=0
+PVMTEST-RESULT: ok tag=regress-pvh-default    suite=default pass=31 fail=0
 ```
 
-The BUG is a symptom, not the fault: it is the coredump of a SIGSEGV'd
-qemu trying to sleep. The two things it says are that the switcher
-corrupted its own host process, and that it returned with a preempt count
-of 2 -- two `preempt_disable()` calls that were never paired, so the path
-back to the host did not unwind. That is where to look next, and it is
-host-backend work rather than anything to do with the port.
+Not yet run: `make full` and `make perf`.
 
 ## Known gaps in the port
 
@@ -111,7 +114,9 @@ host-backend work rather than anything to do with the port.
    side is the less-changed half, so this should be easier than it
    sounds.
 3. ~~`make stage1`~~ -- done.
-4. `make stage2`. Reached; see above. The switcher runs once and takes
-   qemu with it. The leaked preempt count is the thread to pull.
+4. ~~`make stage2`~~ -- done, 31/31.
+5. `make full`, then `make perf` for a PVM-versus-KVM comparison on the
+   same machine. See docs/DEBUGGING.md for how to see into an early
+   crash, which is where every bug so far has been.
 4. `make full`, then `make perf` for a PVM-versus-KVM comparison on the
    same machine.

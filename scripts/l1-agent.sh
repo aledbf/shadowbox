@@ -102,6 +102,18 @@ run_guest() { # $1=tag, rest=machine args
 	fi
 }
 
+# Core dumps off, on purpose.  vfs_coredump() is what sleeps, and it is
+# sleeping with a leaked preempt count -- so the dump never finishes, qemu
+# never exits, and the agent waits on it forever.  Without a dump the
+# SIGSEGV just kills qemu and we get to keep debugging.
+#
+# print-fatal-signals gives the faulting address, RIP and error code for
+# the killed process, which is the one line that says whether this is qemu
+# faulting or a PVM guest fault reaching the host's own #PF handler.
+ulimit -c 0
+echo core > /proc/sys/kernel/core_pattern 2>/dev/null
+echo 1 > /proc/sys/kernel/print-fatal-signals 2>/dev/null
+
 run_guest q35 -machine q35,accel=kvm
 
 if [ -d "$T" ]; then
@@ -111,6 +123,9 @@ fi
 # do_pvm_event() warns once per rate-limit window when the VMM injects an
 # event while the vCPU is still in the non-PVM bootstrap mode.  Its
 # presence or absence says whether that path was reached at all.
+say "--- what the host said about the guest ---"
+dmesg | grep -iE "PVM:|non-PVM mode" | tail -6 | sed 's/^/L1: pvm: /' ||
+	say "(nothing)"
 say "--- injection warnings ---"
 if ! dmesg | grep -i "non-PVM mode" | tail -3 | grep . | sed 's/^/L1: warn: /'; then
 	say "no 'non-PVM mode' warning"
@@ -119,18 +134,31 @@ fi
 # The backtrace is the thing.  Print the region around it and nothing
 # else: a full dmesg dump is long enough that the tail of it is what gets
 # lost, and the tail is the part that matters.
+# The most informative line of all, if qemu died: the kernel logs the
+# faulting address, instruction pointer and error code for an unhandled
+# user signal.  A PVM guest runs at hardware CPL3 inside the qemu thread,
+# so a guest fault that reaches the host's own #PF handler looks exactly
+# like qemu faulting -- and this line is what tells the two apart.
+say "--- did qemu fault, and where ---"
+if ! dmesg | grep -E "segfault|trap [a-z]+ ip|traps:" | tail -5 | grep . |
+		sed 's/^/L1: sig: /'; then
+	say "no segfault reported"
+fi
+
 say "--- kernel complaints from the guest run ---"
-if ! dmesg | sed -n '/scheduling while atomic\|BUG:\|general protection fault\|unable to handle/,+28p' \
-		| head -60 | grep . | sed 's/^/L1: bug: /'; then
+if ! dmesg | sed -n '/scheduling while atomic\|BUG:\|general protection fault\|unable to handle/,+12p' \
+		| head -30 | grep . | sed 's/^/L1: bug: /'; then
 	say "no BUG, GPF or fault in dmesg"
 fi
 
-say "--- last 10 kvm events that are not instruction emulation ---"
+# The teardown thread and the mmu-notifier unmap storm are the loudest
+# things in the buffer and say nothing.  Everything else, in order, is
+# what actually happened -- and picking a thread by name gets it wrong,
+# because the qemu IO thread and the vCPU threads share it.
 if [ -d "$T" ]; then
-	grep -vE "kvm_emulate_insn|kvm_unmap_hva_range" "$T/trace" | tail -10 |
-		sed 's/^/L1: kvm: /'
-	say "--- last 4 instructions emulated ---"
-	tail -4 "$T/trace" | sed 's/^/L1: kvm: /'
+	say "--- last 70 trace lines, teardown and unmaps removed ---"
+	grep -vE "kvm-nx-lpage|kvm_unmap_hva_range|kvm_hv_stimer_cleanup|kvm-pit|kvm_(pic|ioapic)_set_irq|kvm_set_irq" "$T/trace" |
+		tail -70 | sed 's/^/L1: kvm: /'
 fi
 
 say "done"

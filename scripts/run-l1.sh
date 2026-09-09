@@ -47,8 +47,10 @@ if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
 	die "L1 timed out -- see $log_file"
 fi
 
-if grep -q '^G: PVMTEST-RESULT: ok ' "$log_file"; then
-	log "PVM guest: $(grep -m1 '^G: PVMTEST-RESULT:' "$log_file")"
+# The agent tags each guest's output with the machine type it booted, so
+# the prefix is "G[q35]:" rather than "G:".
+if grep -q '^G\[[a-z0-9]*\]: PVMTEST-RESULT: ok ' "$log_file"; then
+	log "PVM guest: $(grep -m1 'PVMTEST-RESULT:' "$log_file" | sed 's/.*PVMTEST/PVMTEST/')"
 	exit 0
 fi
 warn "PVM guest did not pass; last of the log:"
