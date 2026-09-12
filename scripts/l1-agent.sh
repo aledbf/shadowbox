@@ -327,10 +327,62 @@ if { [ "$SUITE" = perf ] || [ "$SUITE" = mmu ]; } && [ -d "$T" ]; then
 	# hypercalls alone, so every PVM_HC_* lands here as a bare exit with
 	# no counter of its own.  The reason field of kvm_exit has it -- PVM
 	# fills it in from pvm_get_syscall_exit_reason() -- so count that.
+	# "HYPERCALL" on its own says almost nothing -- a TLB flush and a
+	# page-table load cost very different amounts -- so pvm_get_exit_info()
+	# puts which one it was in info2.  Substitute it, which is what that
+	# field is there for.
 	say "--- exits by reason ---"
-	sed -n 's/.*kvm_exit: .* reason \(.*\) rip .*/\1/p' \
-		"$T/trace" | sort | uniq -c | sort -rn | head -15 |
-		sed 's/^/L1: exit: /'
+	sed -n 's/.*kvm_exit: .* reason \(.*\) rip .*info2 \(0x[0-9a-f]*\).*/\1|\2/p' \
+		"$T/trace" |
+		awk -F'|' '
+		BEGIN {
+			h["20001"]="HC_IRQ_WIN";    h["20002"]="HC_IRQ_HALT"
+			h["20003"]="HC_LOAD_PGTBL"; h["20004"]="HC_TLB_FLUSH"
+			h["20005"]="HC_TLB_FLUSH_CURRENT"
+			h["20006"]="HC_TLB_INVLPG"
+			h["20007"]="HC_LOAD_GS";    h["20008"]="HC_RDMSR"
+			h["20009"]="HC_WRMSR";      h["2000a"]="HC_LOAD_TLS"
+		}
+		{
+			r = $1
+			if (r == "HYPERCALL") {
+				v = $2
+				sub(/^0x0*/, "", v)
+				r = (v in h) ? h[v] : "HYPERCALL(" v ")"
+			}
+			n[r]++
+		}
+		END { for (k in n) printf "%8d  %s\n", n[k], k }' |
+		sort -rn | head -18 | sed 's/^/L1: exit: /'
+
+	# Which guest code is causing them.  The reason says what the exit was;
+	# this says who asked for it, which is the part you can do something
+	# about.  Raw RIPs: the guest kernel is PIE and relocated, so resolving
+	# them needs its vmlinux and its runtime _text, both of which live
+	# outside L1.  scripts/resolve-exits.sh does that half.
+	say "--- exits by reason and guest rip ---"
+	sed -n 's/.*kvm_exit: .* reason \(.*\) rip \(0x[0-9a-f]*\).*info2 \(0x[0-9a-f]*\).*/\1|\2|\3/p' \
+		"$T/trace" |
+		awk -F'|' '
+		BEGIN {
+			h["20001"]="HC_IRQ_WIN";    h["20002"]="HC_IRQ_HALT"
+			h["20003"]="HC_LOAD_PGTBL"; h["20004"]="HC_TLB_FLUSH"
+			h["20005"]="HC_TLB_FLUSH_CURRENT"
+			h["20006"]="HC_TLB_INVLPG"
+			h["20007"]="HC_LOAD_GS";    h["20008"]="HC_RDMSR"
+			h["20009"]="HC_WRMSR";      h["2000a"]="HC_LOAD_TLS"
+		}
+		{
+			r = $1
+			if (r == "HYPERCALL") {
+				v = $3
+				sub(/^0x0*/, "", v)
+				r = (v in h) ? h[v] : "HYPERCALL(" v ")"
+			}
+			n[r "|" $2]++
+		}
+		END { for (k in n) { split(k, p, "|"); printf "%8d  %-22s %s\n", n[k], p[1], p[2] } }' |
+		sort -rn | head -25 | sed 's/^/L1: exitrip: /'
 
 	total=$(grep -c kvm_emulate_insn "$T/trace" 2>/dev/null || echo 0)
 	say "--- emulated instructions: $total traced ---"

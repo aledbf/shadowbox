@@ -4,6 +4,12 @@
 # with the guest kernel handed in over 9p.  L1 needs no nested VMX: a PVM
 # host uses none, which is the property this whole harness exists to
 # check.
+#
+# NOTE: this does not build anything.  It boots whatever host kernel, guest
+# kernel and initrd are already in out/, so after editing the kernel run
+# "make host-kernel" (or a make target, which all depend on it) first.
+# Skipping that is how a measurement got taken against a module that did not
+# contain the change being measured.
 
 source "$(dirname "$0")/lib.sh"
 check_run_deps
