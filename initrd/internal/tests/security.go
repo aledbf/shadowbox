@@ -48,17 +48,37 @@ const mapFixedNoreplace = 0x100000
 // switcher than an ordinary fault.
 const firstNoncanonical = 0x0000800000000000
 
-// topUserPage is the last page a 4-level guest can actually map.
+// userKernelBoundary is the first address this guest's user space may not
+// use, which is not the same number on every kernel this binary runs on.
 //
-// TASK_SIZE_MAX is (1<<47) - PAGE_SIZE, and mmap wants the whole mapping
-// to end at or below it, so the highest page that can be placed starts
-// one page below that again.  Getting this wrong is what the control in
-// security/mmap-boundary caught the first time it ran.
+// An ordinary 4-level kernel keeps its own half above the sign bit and user
+// space runs to 1<<47.  A PVM guest has no upper half -- the host owns it,
+// which is what lets the guest run at hardware CPL3 inside it -- so the guest
+// kernel shares the lower half with its user space and the boundary is one
+// bit further down.  The same initrd boots both, so it has to ask: the
+// hypervisor bit in /proc/cpuinfo is the question.
 //
-// A 5-level guest would have a higher boundary and this control would
-// then be conservative rather than wrong; the guest kernel here is
-// 4-level.
-const topUserPage = 0x00007ffffffff000 - 0x1000
+// A 5-level guest would have a higher boundary either way and this would then
+// be conservative rather than wrong; the guest kernel here is 4-level.
+func userKernelBoundary() (uintptr, error) {
+	flags, err := cpuinfoFlags()
+	if err != nil {
+		return 0, err
+	}
+	if flags["pvm_guest"] {
+		return 1 << 46, nil
+	}
+	return 1 << 47, nil
+}
+
+// topUserPage is the last page the guest can actually map: mmap wants the
+// whole mapping to end at or below TASK_SIZE_MAX, which is one page below the
+// boundary, so the highest page that can be placed starts one page below that
+// again.  Getting this wrong is what the control in security/mmap-boundary
+// caught the first time it ran.
+func topUserPage(boundary uintptr) uintptr {
+	return boundary - 2*4096
+}
 
 // privInsns are instructions that must fault at CPL3.  The bytes are
 // followed by a RET so that a CPU which somehow executed them would
@@ -186,10 +206,15 @@ func registerSecurity(h *harness.Harness) {
 		Suites: []string{harness.Security, harness.Full},
 		Fn: func(t *harness.T) error {
 			page := os.Getpagesize()
+			boundary, err := userKernelBoundary()
+			if err != nil {
+				return err
+			}
+			top := topUserPage(boundary)
 			// The last page of the user half has to still work: a
 			// test that only shows high addresses failing would pass
 			// just as well on a kernel that refused everything.
-			p, _, errno := syscall.Syscall6(syscall.SYS_MMAP, topUserPage,
+			p, _, errno := syscall.Syscall6(syscall.SYS_MMAP, top,
 				uintptr(page), syscall.PROT_READ|syscall.PROT_WRITE,
 				syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS|
 					syscall.MAP_FIXED|mapFixedNoreplace,
@@ -197,15 +222,20 @@ func registerSecurity(h *harness.Harness) {
 			if errno != 0 {
 				return fmt.Errorf("mmap at the top user page (%#x) failed with %v: "+
 					"the user/kernel boundary is not where it should be",
-					uintptr(topUserPage), errno)
+					top, errno)
 			}
 			syscall.Syscall(syscall.SYS_MUNMAP, p, uintptr(page), 0)
-			t.Logf("%-28s %#016x -> ok (control)", "top user page", uintptr(topUserPage))
+			t.Logf("%-28s %#016x -> ok (control)", "top user page", top)
 
 			for _, tc := range []struct {
 				name string
 				addr uintptr
 			}{
+				// The first page user space may not have.  On a
+				// PVM guest that is the guest kernel's own half,
+				// in the lower half and perfectly canonical, so
+				// nothing but TASK_SIZE_MAX is refusing it.
+				{"first page above user space", boundary},
 				{"non-canonical", firstNoncanonical},
 				{"kernel half", 0xffffffff81000000},
 				{"one page into the hole", firstNoncanonical + uintptr(page)},
