@@ -468,28 +468,27 @@ static void test_pku_not_advertised(struct vm *v)
 	bool have_ospke = host_has_ospke();
 
 	/*
-	 * Protection keys are half-landed, so this case records which half
-	 * rather than demanding one.  The machinery works -- the guest's key
-	 * reaches the leaf SPTE and the hardware enforces it against the
-	 * guest's own PKRU -- but pvm_set_cpu_caps() does not set the
-	 * capability yet, because doing so hangs the x86/state_test selftest.
+	 * PKU is advertised, and has to be: the guest runs on the shadow page
+	 * tables at CPL 3 on the real PKRU, so the hardware enforces its keys.
+	 * Upstream KVM clears PKU whenever !tdp_enabled, which PVM undoes
+	 * deliberately -- if that ever stops happening the guest silently
+	 * loses protection keys, and nothing else here would notice.
 	 *
-	 * What is worth failing on is OSPKE without PKU: OSPKE is derived from
-	 * the guest's CR4.PKE, which the guest can only set if PKU said it
-	 * could, so that combination means the two have come apart.
+	 * OSPKE follows the guest's own CR4.PKE, so it is absent from
+	 * KVM_GET_SUPPORTED_CPUID; OSPKE without PKU would mean the two had
+	 * come apart, telling a guest about keys it cannot reach.
 	 */
-	current_case = "pvm/pku-state";
-	if (ospke && !pku)
-		nok("OSPKE is advertised without PKU; a guest cannot set "
-		    "CR4.PKE and so cannot reach the keys it is being told "
-		    "about");
-	else if (pku)
-		ok("PKU advertised; security/pkey-denied is what says it works");
-	else if (have_ospke)
-		ok("PKU not advertised (the host has OSPKE, so this is PVM's "
-		   "choice, not the hardware's)");
-	else
+	current_case = "pvm/pku-advertised";
+	if (!have_ospke)
 		ok("the host has no OSPKE, so there is no PKU to advertise");
+	else if (ospke && !pku)
+		nok("OSPKE is advertised without PKU; a guest cannot set "
+		    "CR4.PKE and so cannot reach the keys it is told about");
+	else if (!pku)
+		nok("KVM_GET_SUPPORTED_CPUID does not advertise PKU on a host "
+		    "that has OSPKE; the guest gets no protection keys");
+	else
+		ok("PKU advertised; security/pkey-denied is what says it works");
 }
 
 static void test_pkru_leak(struct vm *v)

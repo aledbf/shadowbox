@@ -202,20 +202,20 @@ func registerCPUID(h *harness.Harness) {
 					"it does not have", advertised)
 			}
 
-			// Protection keys are half-landed: the machinery under
-			// them works (shadow_pkey_mask, and the guest's own
-			// PKRU enforced by the hardware), but pvm_set_cpu_caps()
-			// does not advertise PKU yet.  So assert consistency
-			// rather than a fixed answer -- a kernel that sees PKU
-			// without OSPKE, or the reverse, is broken either way --
-			// and let security/pkey-denied say whether they work
-			// wherever they are advertised.
-			if flags["pku"] != flags["ospke"] {
-				return fmt.Errorf("PVM advertises pku=%v but ospke=%v; "+
-					"the guest cannot use one without the other",
-					flags["pku"], flags["ospke"])
+			// The opposite rule for protection keys: they are
+			// implemented, so a guest that does not see them has
+			// lost something.  PKU comes from CPUID and OSPKE
+			// follows the guest's own CR4.PKE, so both present is
+			// what says the guest kernel turned them on -- and
+			// security/pkey-denied is what says they work.
+			for _, f := range []string{"pku", "ospke"} {
+				if !flags[f] {
+					return fmt.Errorf("PVM does not advertise %q; the guest "+
+						"gets no protection keys, and shadow_pkey_mask, "+
+						"the PKU capability or the supervisor PKRU split "+
+						"has been lost", f)
+				}
 			}
-			t.Logf("protection keys advertised to the guest kernel: %v", flags["pku"])
 
 			// Invariant M4: the guest runs at CPL3 in both of its
 			// modes, so hardware SMAP cannot separate them.  SMEP
