@@ -58,9 +58,21 @@ func (t *T) Logf(format string, a ...any) {
 // Metric records a number for the perf suite.  It is printed rather than
 // asserted on: thresholds belong outside, where several runs can be
 // compared, not baked into the guest.
+//
+// The trailing marker is not decoration.  This goes out over the same
+// serial console the kernel prints to, and a printk landing mid-line
+// produces something like
+//
+//	PVMTEST-METRIC: perf/context-switch.ns_per_pipe_[    1.09] init (83) used...
+//
+// which a field-splitting reader accepts as the metric "ns_per_pipe_[" with
+// the value 1.09.  That is worse than losing the line: it is a plausible
+// wrong number, and it silently replaced the real one for long enough that
+// a 4.8x regression showed up as 0.00x in the comparison table.  A reader
+// that requires the marker sees a truncated line for what it is.
 func (t *T) Metric(name string, value float64, unit string) {
 	t.notes = append(t.notes, fmt.Sprintf("metric %s = %g %s", name, value, unit))
-	fmt.Printf("PVMTEST-METRIC: %s.%s %g %s\n", t.name, name, value, unit)
+	fmt.Printf("PVMTEST-METRIC: %s.%s %g %s #END\n", t.name, name, value, unit)
 }
 
 type Harness struct {

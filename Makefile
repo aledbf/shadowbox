@@ -7,6 +7,7 @@
 # make full     stage2 with the long suites
 # make perf     the measurements, on PVM and on plain KVM, side by side
 # make mmu      shadow MMU event counts, both vendors
+# make exits CASE=<case>  exits and their causes, attributed to one case
 # make quick    regress + stage2, the shortest thing worth running
 # make check    everything a change has to pass before it is called done
 # make security negative tests -- on plain KVM and under PVM -- + sanitize
@@ -27,7 +28,7 @@ export KSRC
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
         host-sanitize-log security soak perf-matrix perf-baseline \
-        hosttests build-hosttests build-kvm-selftests failclosed \
+        hosttests build-hosttests build-kvm-selftests failclosed exits \
         check clean distclean
 
 # How many times "make soak" repeats stage 2.
@@ -74,6 +75,13 @@ stage1: host-kernel check-rootfs initrd guest-kernel
 
 stage2: host-kernel check-rootfs initrd guest-kernel
 	@$(S)/run-l1.sh default
+
+# Where one benchmark's exits go.  "make mmu" counts the whole run, which
+# for PVM is dominated by boot -- it emulates its way to long mode one
+# instruction at a time -- so this subtracts a no-case run from a one-case
+# run and reports the difference.
+exits: host-kernel check-rootfs initrd guest-kernel
+	@$(S)/exit-profile.sh "$(or $(CASE),perf/context-switch)"
 
 mmu: host-kernel check-rootfs initrd guest-kernel
 	@echo "=== shadow MMU events: PVM ==="

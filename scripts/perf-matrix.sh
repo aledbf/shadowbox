@@ -85,7 +85,7 @@ for n in $CPUS; do
 			# to nothing.
 			sed -n 's/^\(G\[[a-z0-9]*\]: \)\?PVMTEST-METRIC: //p' \
 				"$OUT/logs/l1-perf-$vendor-$tag.log" | tr -d '\r' |
-				awk -v n="$n" -v v="$vendor" '{print $1"\t"n"\t"v"\t"$2"\t"$3}' \
+				awk -v n="$n" -v v="$vendor" '$NF == "#END" {print $1"\t"n"\t"v"\t"$2"\t"$3}' \
 				>> "$raw"
 		done
 	done

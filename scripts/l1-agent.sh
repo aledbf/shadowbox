@@ -173,6 +173,15 @@ if [ -d "$T" ]; then
 		echo 1 > "$T/events/kvm/kvm_emulate_insn/enable" 2>/dev/null &&
 			say "tracing emulated instructions"
 		echo 1 > "$T/events/kvm/kvm_msr/enable" 2>/dev/null
+		# The counters say how many exits there were; nothing says what
+		# they were, because a PVM_HC_* exit has no counter of its own
+		# -- kvm:kvm_hypercall fires only in kvm_emulate_hypercall(),
+		# which PVM reaches for the KVM-specific hypercalls alone.
+		# kvm_exit carries the reason, so in mmu mode trace that too.
+		if [ "$MODE" = mmu ]; then
+			echo 1 > "$T/events/kvm/kvm_exit/enable" 2>/dev/null &&
+				say "tracing exit reasons"
+		fi
 	else
 		echo 32768 > "$T/buffer_size_kb" 2>/dev/null
 		echo 1 > "$T/events/kvm/enable" 2>/dev/null &&
@@ -268,8 +277,19 @@ export LD_LIBRARY_PATH=/mnt/payload${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 if [ "$MODE" = mmu ] && [ -x /mnt/payload/perf ]; then
 	cd /tmp || exit 1
 	echo -1 > /proc/sys/kernel/perf_event_paranoid
-	say "counting shadow MMU events"
-	PERF_PREFIX="/mnt/payload/perf stat -a -o /tmp/mmu.txt -e kvmmmu:kvm_mmu_get_page,kvmmmu:kvm_mmu_prepare_zap_page,kvmmmu:kvm_mmu_sync_page,kvmmmu:kvm_mmu_unsync_page,kvmmmu:fast_page_fault,kvm:kvm_hypercall --"
+	say "counting exits and shadow MMU events"
+	# kvm_exit first, because for a hypervisor it is the number: every
+	# other count here is a theory about what those exits were.  The rest
+	# split them -- emulated instructions, PIO, MMIO, MSR accesses -- and
+	# the kvmmmu ones say how much of it was the shadow MMU.
+	#
+	# kvm:kvm_hypercall alone is not enough to see PVM hypercalls: it
+	# fires in kvm_emulate_hypercall(), which PVM reaches only for the
+	# KVM-specific ones.  PVM_HC_* are counted as exits, not as hypercalls.
+	PERF_EVENTS="kvm:kvm_exit,kvm:kvm_entry,kvm:kvm_emulate_insn,kvm:kvm_pio,kvm:kvm_mmio,kvm:kvm_msr,kvm:kvm_hypercall"
+	PERF_EVENTS="$PERF_EVENTS,kvmmmu:kvm_mmu_get_page,kvmmmu:kvm_mmu_prepare_zap_page"
+	PERF_EVENTS="$PERF_EVENTS,kvmmmu:kvm_mmu_sync_page,kvmmmu:kvm_mmu_unsync_page,kvmmmu:fast_page_fault"
+	PERF_PREFIX="/mnt/payload/perf stat -a -o /tmp/mmu.txt -e $PERF_EVENTS --"
 elif [ "$MODE" = profile ] && [ -x /mnt/payload/perf ]; then
 	cd /tmp || exit 1
 	echo 0 > /proc/sys/kernel/kptr_restrict
@@ -300,7 +320,18 @@ run_guest q35 -machine q35,accel=kvm
 # Which instructions the host is emulating, and how often.  Every #GP the
 # guest takes for a privileged instruction with no paravirt hook lands in
 # the emulator, and the exit histogram counts them all as one row.
-if [ "$SUITE" = perf ] && [ -d "$T" ]; then
+if { [ "$SUITE" = perf ] || [ "$SUITE" = mmu ]; } && [ -d "$T" ]; then
+	# What the exits were.  This is the first question about a hypervisor
+	# and the counters cannot answer it: kvm:kvm_hypercall fires only in
+	# kvm_emulate_hypercall(), which PVM reaches for the KVM-specific
+	# hypercalls alone, so every PVM_HC_* lands here as a bare exit with
+	# no counter of its own.  The reason field of kvm_exit has it -- PVM
+	# fills it in from pvm_get_syscall_exit_reason() -- so count that.
+	say "--- exits by reason ---"
+	sed -n 's/.*kvm_exit: .* reason \(.*\) rip .*/\1/p' \
+		"$T/trace" | sort | uniq -c | sort -rn | head -15 |
+		sed 's/^/L1: exit: /'
+
 	total=$(grep -c kvm_emulate_insn "$T/trace" 2>/dev/null || echo 0)
 	say "--- emulated instructions: $total traced ---"
 	sed -n 's/.*kvm_emulate_insn: [^:]*:[^:]*:\([0-9a-f ]*\)(.*/\1/p' "$T/trace" |
