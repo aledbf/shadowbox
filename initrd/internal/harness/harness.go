@@ -27,6 +27,12 @@ const (
 	// to do.  Like Perf it is outside the smoke/default/full ranking, so
 	// "default" does not drag it in; cases list Full alongside it when
 	// they should also run there.
+	//
+	// The isolation cases list Core as well, so the everyday run cannot
+	// pass while the guest's user/kernel boundary is broken.  They cost a
+	// few hundred milliseconds between them, and leaving them out of the
+	// default run is how a broken boundary went unnoticed through three
+	// green rounds once already.
 	Security = "security"
 )
 

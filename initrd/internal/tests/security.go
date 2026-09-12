@@ -152,7 +152,7 @@ func registerSecurity(h *harness.Harness) {
 	// shadow MMU reconstructing the split.
 	h.Add(harness.Case{
 		Name:   "security/kernel-text",
-		Suites: []string{harness.Security, harness.Full},
+		Suites: []string{harness.Security, harness.Core, harness.Full},
 		Fn: func(t *harness.T) error {
 			base, err := sysinit.KernelTextBase()
 			if err != nil {
@@ -175,7 +175,7 @@ func registerSecurity(h *harness.Harness) {
 	// kernel puts its text.
 	h.Add(harness.Case{
 		Name:   "security/host-window",
-		Suites: []string{harness.Security, harness.Full},
+		Suites: []string{harness.Security, harness.Core, harness.Full},
 		Fn: func(t *harness.T) error {
 			const hostText = 0xffffffff81000000
 			base, err := sysinit.KernelTextBase()
@@ -203,7 +203,7 @@ func registerSecurity(h *harness.Harness) {
 	// than handing them over and letting the fault sort it out.
 	h.Add(harness.Case{
 		Name:   "security/mmap-boundary",
-		Suites: []string{harness.Security, harness.Full},
+		Suites: []string{harness.Security, harness.Core, harness.Full},
 		Fn: func(t *harness.T) error {
 			page := os.Getpagesize()
 			boundary, err := userKernelBoundary()
@@ -252,6 +252,97 @@ func registerSecurity(h *harness.Harness) {
 						"returning %#x", tc.name, tc.addr, p)
 				}
 				t.Logf("%-28s %#016x -> %v", tc.name, tc.addr, errno)
+			}
+			return nil
+		},
+	})
+
+	// The other half of the boundary, and the half only software enforces.
+	//
+	// security/kernel-text is the hardware's answer: a user process that
+	// dereferences a guest kernel address faults, because the shadow MMU
+	// reconstructed the U/S split the CPU can no longer see.  This is the
+	// software's answer, to a user process that asks the *kernel* to do
+	// the access for it by handing a guest kernel address to a syscall.
+	//
+	// Nothing in the hardware refuses that one.  The guest kernel runs at
+	// CPL3 like its own user space, and its pages are USER in the shadow
+	// tree -- invariant M1 -- so the kernel really can read and write them
+	// on anyone's behalf.  access_ok() is the only thing that says no, and
+	// access_ok() is TASK_SIZE_MAX, which on a PVM guest is no longer the
+	// sign bit but a bound the guest kernel sets for itself.
+	h.Add(harness.Case{
+		Name:   "security/uaccess-boundary",
+		Suites: []string{harness.Security, harness.Core, harness.Full},
+		Fn: func(t *harness.T) error {
+			zero, err := os.Open("/dev/zero")
+			if err != nil {
+				return err
+			}
+			defer zero.Close()
+			null, err := os.OpenFile("/dev/null", os.O_WRONLY, 0)
+			if err != nil {
+				return err
+			}
+			defer null.Close()
+
+			boundary, err := userKernelBoundary()
+			if err != nil {
+				return err
+			}
+
+			// The control, for the same reason mmap-boundary has
+			// one: both directions have to work at an address the
+			// process really owns, or a kernel that answered EFAULT
+			// to everything would pass this.
+			buf := make([]byte, 8)
+			ok := uintptr(unsafe.Pointer(&buf[0]))
+			if _, _, errno := syscall.Syscall(syscall.SYS_READ,
+				zero.Fd(), ok, 8); errno != 0 {
+				return fmt.Errorf("read(/dev/zero) into a valid buffer gave %v", errno)
+			}
+			if _, _, errno := syscall.Syscall(syscall.SYS_WRITE,
+				null.Fd(), ok, 8); errno != 0 {
+				return fmt.Errorf("write(/dev/null) from a valid buffer gave %v", errno)
+			}
+			t.Logf("%-28s %#016x -> ok (control)", "a buffer we own", ok)
+
+			targets := []struct {
+				name string
+				addr uintptr
+			}{
+				{"first page above user space", boundary},
+			}
+			// A live, mapped, in-use guest kernel address: if the
+			// bound were wrong the kernel would not merely touch a
+			// hole, it would read and write its own text.
+			if base, err := sysinit.KernelTextBase(); err == nil && base != 0 {
+				targets = append(targets, struct {
+					name string
+					addr uintptr
+				}{"guest kernel _text", uintptr(base)})
+			}
+
+			for _, tc := range targets {
+				// read(2) writes into the buffer, so the kernel
+				// would be the one writing to its own memory.
+				_, _, errno := syscall.Syscall(syscall.SYS_READ,
+					zero.Fd(), tc.addr, 8)
+				if errno != syscall.EFAULT {
+					return fmt.Errorf("read(/dev/zero) into %s (%#x) gave %v, want EFAULT: "+
+						"the kernel accepted a user pointer above TASK_SIZE_MAX",
+						tc.name, tc.addr, errno)
+				}
+				// write(2) reads out of it, which is the direction
+				// that would hand kernel memory to user space.
+				_, _, errno = syscall.Syscall(syscall.SYS_WRITE,
+					null.Fd(), tc.addr, 8)
+				if errno != syscall.EFAULT {
+					return fmt.Errorf("write(/dev/null) from %s (%#x) gave %v, want EFAULT: "+
+						"the kernel read its own memory for an unprivileged process",
+						tc.name, tc.addr, errno)
+				}
+				t.Logf("%-28s %#016x -> EFAULT both ways", tc.name, tc.addr)
 			}
 			return nil
 		},

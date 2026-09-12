@@ -8,6 +8,7 @@
 # make perf     the measurements, on PVM and on plain KVM, side by side
 # make mmu      shadow MMU event counts, both vendors
 # make quick    regress + stage2, the shortest thing worth running
+# make check    everything a change has to pass before it is called done
 # make security negative tests -- on plain KVM and under PVM -- + sanitize
 # make failclosed  the cases where kvm-pvm must refuse to load
 # make hosttests   the KVM-API side: PVM MSRs, PVCS pinning, memslot churn,
@@ -27,7 +28,7 @@ export KSRC
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
         host-sanitize-log security soak perf-matrix perf-baseline \
         hosttests build-hosttests build-kvm-selftests failclosed \
-        clean distclean
+        check clean distclean
 
 # How many times "make soak" repeats stage 2.
 SOAK ?= 10
@@ -135,6 +136,17 @@ sanitize:
 host-sanitize-log: sanitize
 
 quick: regress stage2
+
+# The whole verdict, in the order that fails cheapest first.
+#
+# It exists because "make stage2 hosttests" looks like a complete run and
+# is not: the negative tests live in their own target, so a change can go
+# three rounds green while the guest's user/kernel boundary is broken.
+# That happened.  The isolation cases are in the default suite now so
+# stage2 alone would have caught that one, but the rest of the security
+# suite, the fail-closed cases and the selftests still only run here.
+check: regress stage2 hosttests security failclosed
+	@echo "==> check: stage2, hosttests, security and failclosed all passed"
 
 # Repetition is what finds the once-in-thirty WARN.  Each iteration keeps
 # its own log so the sanitizer at the end has all of them, and a failure
