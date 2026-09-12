@@ -194,6 +194,11 @@ case "$SUITE" in
 full|perf|all) GUEST_TIMEOUT=1800 ;;
 *)          GUEST_TIMEOUT=120 ;;
 esac
+# Debugging a guest that hangs: the serial log only reaches the console
+# once qemu has exited, so the wait to see anything at all is the whole
+# timeout.  pvmtest.guest_timeout= shortens it.
+G_TIMEOUT="$(sed -n 's/.*pvmtest\.guest_timeout=\([0-9]*\).*/\1/p' /proc/cmdline)"
+[ -n "$G_TIMEOUT" ] && GUEST_TIMEOUT="$G_TIMEOUT"
 say "guest: ${GUEST_CPUS} vcpus, ${GUEST_MEM}, timeout ${GUEST_TIMEOUT}s"
 
 APPEND="console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=$SUITE pvmtest.tag=$VENDOR-guest"

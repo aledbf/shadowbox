@@ -12,15 +12,18 @@
 #
 # What can actually be created here:
 #
-#   host-pti   boot L1 with pti=on.  This machine reports "meltdown: Not
-#              affected" so PTI is off by default and everything has been
-#              tested without it; pti=on is the switch that makes
-#              X86_FEATURE_PTI true and takes the refusal path.
+#   no-fsgsbase  boot L1 with clearcpuid=fsgsbase.  The switcher reads and
+#                writes GSBASE on every ring switch, so a host without it
+#                is refused; clearcpuid= is the only way to create the
+#                condition on a CPU that has the feature.
 #
 # What cannot: FRED needs a CPU that has it, and this one does not.  There
 # is no way to fake X86_FEATURE_FRED for the host kernel from here, so
 # that arm of hardware_cap_check() is unexercised and says so below rather
 # than being quietly skipped.
+#
+# What no longer belongs here: host KPTI.  It used to be refused; it is now
+# supported and is covered positively by "make pti" instead.
 
 source "$(dirname "$0")/lib.sh"
 
@@ -65,7 +68,7 @@ check() {
 	fi
 }
 
-check host-pti "pti=on" "host KPTI"
+check no-fsgsbase "clearcpuid=fsgsbase" "FSGSBASE is required"
 
 printf '\n' >&2
 warn "not exercised: the FRED arm of hardware_cap_check() needs a CPU with"

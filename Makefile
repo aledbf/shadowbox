@@ -12,6 +12,7 @@
 # make check    everything a change has to pass before it is called done
 # make security negative tests -- on plain KVM and under PVM -- + sanitize
 # make failclosed  the cases where kvm-pvm must refuse to load
+# make pti         the same suites again, on a host booted with KPTI on
 # make hosttests   the KVM-API side: PVM MSRs, PVCS pinning, memslot churn,
 #                  plus a subset of the kernel's own KVM selftests
 # make sanitize scan every log kept under out/logs for kernel complaints
@@ -28,7 +29,7 @@ export KSRC
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
         host-sanitize-log security soak perf-matrix perf-baseline \
-        hosttests build-hosttests build-kvm-selftests failclosed exits \
+        hosttests build-hosttests build-kvm-selftests failclosed pti exits \
         check clean distclean
 
 # How many times "make soak" repeats stage 2.
@@ -131,6 +132,20 @@ hosttests: host-kernel check-rootfs initrd guest-kernel build-hosttests build-kv
 failclosed: host-kernel check-rootfs initrd guest-kernel
 	@$(S)/run-failclosed.sh
 
+# Host KPTI.  This machine reports "meltdown: Not affected", so PTI is off
+# by default and every other target here runs without it; pti=on is the
+# switch that makes X86_FEATURE_PTI true, and with it the root a guest runs
+# on stops mapping the host kernel.  Worth its own stage, because nothing
+# else in the tree exercises that.
+pti: host-kernel check-rootfs initrd guest-kernel
+	@echo "=== host KPTI: functional ==="
+	@L1_APPEND=pti=on LOG_SUFFIX=pti $(S)/run-l1.sh default pvm
+	@echo "=== host KPTI: negative tests ==="
+	@L1_APPEND=pti=on LOG_SUFFIX=pti $(S)/run-l1.sh security pvm
+	@echo "=== host KPTI: NMIs into the switcher's CPL0 window ==="
+	@L1_APPEND=pti=on LOG_SUFFIX=pti $(S)/run-l1.sh profile pvm
+	@$(S)/sanitize-log.sh
+
 security: guest-kernel initrd host-kernel check-rootfs
 	@echo "=== negative tests: plain KVM, one layer ==="
 	@$(S)/run-guest.sh --boot pvh --suite security --name security-kvm
@@ -153,8 +168,8 @@ quick: regress stage2
 # That happened.  The isolation cases are in the default suite now so
 # stage2 alone would have caught that one, but the rest of the security
 # suite, the fail-closed cases and the selftests still only run here.
-check: regress stage2 hosttests security failclosed
-	@echo "==> check: stage2, hosttests, security and failclosed all passed"
+check: regress stage2 hosttests security failclosed pti
+	@echo "==> check: stage2, hosttests, security, failclosed and pti all passed"
 
 # Repetition is what finds the once-in-thirty WARN.  Each iteration keeps
 # its own log so the sanitizer at the end has all of them, and a failure

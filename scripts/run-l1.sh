@@ -10,6 +10,10 @@
 # "make host-kernel" (or a make target, which all depend on it) first.
 # Skipping that is how a measurement got taken against a module that did not
 # contain the change being measured.
+#
+# L1_QMP=/path/to/sock opens a QMP socket on the L1 QEMU, so that a wedged
+# L1 can be asked where each of its CPUs actually is ("info registers -a")
+# instead of being guessed at from the console going quiet.
 
 source "$(dirname "$0")/lib.sh"
 check_run_deps
@@ -87,6 +91,7 @@ timeout --foreground -k 5 "$l1_timeout" \
 systemd.mask=serial-getty@ttyS0.service systemd.show_status=false" \
 	-virtfs local,path="$payload",mount_tag=payload,security_model=none,readonly=on \
 	${L1_QEMU_DEBUG:+-d $L1_QEMU_DEBUG -D $OUT/logs/l1-qemu-debug.log} \
+	${L1_QMP:+-qmp unix:$L1_QMP,server=on,wait=off} \
 	-nographic -no-reboot -display none -serial mon:stdio \
 	< /dev/null 2>&1 | tee "$log_file"
 rc=${PIPESTATUS[0]}
