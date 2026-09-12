@@ -51,8 +51,8 @@ var watchedBits = []cpuidBit{
 	{"ssbd", 0x80000008, 0, 1, 24},
 	{"virt_ssbd", 0x80000008, 0, 1, 25},
 
-	// Protection keys: an XSAVE component and a CR4 bit, both of which
-	// PVM has to have an answer for before advertising.
+	// Protection keys.  Implemented: the guest's key reaches the leaf SPTE
+	// and the hardware checks it against the guest's own PKRU.
 	{"pku", 7, 0, 2, 3},
 	{"ospke", 7, 0, 2, 4},
 
@@ -202,16 +202,20 @@ func registerCPUID(h *harness.Harness) {
 					"it does not have", advertised)
 			}
 
-			// Same rule, different register.  There is one hardware
-			// PKRU and PVM forces it to 0 while the guest runs, so
-			// there is no guest architectural PKRU to advertise.
-			for _, f := range []string{"pku", "ospke"} {
-				if flags[f] {
-					return fmt.Errorf("PVM advertises %q, but it keeps no "+
-						"guest architectural PKRU: hardware PKRU is "+
-						"forced to 0 for the duration of the guest", f)
-				}
+			// Protection keys are half-landed: the machinery under
+			// them works (shadow_pkey_mask, and the guest's own
+			// PKRU enforced by the hardware), but pvm_set_cpu_caps()
+			// does not advertise PKU yet.  So assert consistency
+			// rather than a fixed answer -- a kernel that sees PKU
+			// without OSPKE, or the reverse, is broken either way --
+			// and let security/pkey-denied say whether they work
+			// wherever they are advertised.
+			if flags["pku"] != flags["ospke"] {
+				return fmt.Errorf("PVM advertises pku=%v but ospke=%v; "+
+					"the guest cannot use one without the other",
+					flags["pku"], flags["ospke"])
 			}
+			t.Logf("protection keys advertised to the guest kernel: %v", flags["pku"])
 
 			// Invariant M4: the guest runs at CPL3 in both of its
 			// modes, so hardware SMAP cannot separate them.  SMEP

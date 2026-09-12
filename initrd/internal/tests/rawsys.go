@@ -12,6 +12,13 @@ const (
 
 	// MADV_NOHUGEPAGE, which Go's syscall package does not name.
 	madvNoHugepage = 15
+
+	// Memory protection keys.
+	sysPkeyMprotect = 329
+	sysPkeyAlloc    = 330
+	sysPkeyFree     = 331
+
+	pkeyDisableAccess = 0x1
 )
 
 type timeval struct{ Sec, Usec int64 }

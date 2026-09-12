@@ -146,6 +146,58 @@ func registerSecurity(h *harness.Harness) {
 		},
 	})
 
+	// Memory protection keys, end to end from an unprivileged guest
+	// process.  Both vendors: under kvm-intel the hardware walks the
+	// guest's own page tables and this is ordinary PKU, which is what
+	// makes it a usable reference for PVM, where the hardware walks the
+	// shadow tables and the key has to have been copied into them.
+	// Skipped where the guest kernel has no protection keys, which under
+	// PVM is the state today -- see pvm_set_cpu_caps().  Under kvm-intel
+	// they run, which is what keeps them honest.
+	h.Add(harness.Case{
+		Name:   "security/pkey-denied",
+		Suites: []string{harness.Security, harness.Full},
+		Fn: func(t *harness.T) error {
+			rc, out, err := runVictim("victim-pkey", "deny")
+			if err != nil {
+				return err
+			}
+			if rc == 77 {
+				t.Logf("skipped: the guest kernel has no protection keys")
+				return nil
+			}
+			if rc == 0 {
+				return fmt.Errorf("a read through a PKEY_DISABLE_ACCESS key "+
+					"was allowed: %s", trim(out))
+			}
+			if sig := deathSignal(rc, out); sig != syscall.SIGSEGV {
+				return fmt.Errorf("died of %v, want SIGSEGV: %s", sig, trim(out))
+			}
+			return nil
+		},
+	})
+
+	h.Add(harness.Case{
+		Name:   "security/pkey-allowed",
+		Suites: []string{harness.Security, harness.Full},
+		Fn: func(t *harness.T) error {
+			rc, out, err := runVictim("victim-pkey", "allow")
+			if err != nil {
+				return err
+			}
+			if rc == 77 {
+				t.Logf("skipped: the guest kernel has no protection keys")
+				return nil
+			}
+			if rc != 0 {
+				return fmt.Errorf("a read through an unrestricted protection key "+
+					"did not succeed: rc=%d out=%q -- security/pkey-denied is "+
+					"then passing for the wrong reason", rc, trim(out))
+			}
+			return nil
+		},
+	})
+
 	// The one that matters most.  Guest kernel text, read from an
 	// unprivileged guest process.  On PVM this is not enforced by the
 	// CPU's U/S bit -- the guest is at CPL3 either way -- but by the

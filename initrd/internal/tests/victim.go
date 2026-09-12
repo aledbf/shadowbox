@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"syscall"
+	"unsafe"
 )
 
 // runVictim re-executes this binary in one of the victim modes and
@@ -114,6 +115,11 @@ func victimPingPong(cpuArg string) {
 		os.Exit(3)
 	}
 	runtime.LockOSThread()
+
+	// Never hang: a victim that neither dies nor finishes tells the
+	// harness nothing, and its output is only read once it exits.
+	itv := itimerval{Value: timeval{Sec: 5}}
+	syscall.Syscall(sysSetitimer, itimerReal, uintptr(unsafe.Pointer(&itv)), 0)
 	var set cpuSet
 	set.set(cpu)
 	if err := schedSetaffinity(0, &set); err != nil {
@@ -133,3 +139,76 @@ func victimPingPong(cpuArg string) {
 		}
 	}
 }
+
+// victimPkey exercises a memory protection key from an unprivileged
+// process: allocate one, put it on a page, and touch the page.
+//
+// On PVM this is the whole protection-key path end to end.  The key comes
+// from the guest's own page table entry, which the shadow MMU has to copy
+// into the leaf SPTE (shadow_pkey_mask), and the PKRU that decides what the
+// key means is the real hardware register, which the guest kernel wrote and
+// which has to survive the ring switch back to user mode.  Any one of those
+// missing and the access is simply allowed.
+//
+// "deny" allocates the key with PKEY_DISABLE_ACCESS and expects to die.
+// "allow" allocates it with no restriction and expects to live: without
+// that control, a page that faulted for some unrelated reason would make
+// the first case pass for the wrong reason.
+func victimPkey(mode string) {
+	// PKRU is per-thread and pkey_alloc sets it for the calling thread
+	// only, so the access has to happen on that same thread.
+	runtime.LockOSThread()
+
+	// Never hang: a victim that neither dies nor finishes tells the
+	// harness nothing, and its output is only read once it exits.
+	itv := itimerval{Value: timeval{Sec: 5}}
+	syscall.Syscall(sysSetitimer, itimerReal, uintptr(unsafe.Pointer(&itv)), 0)
+
+	rights := uintptr(0)
+	if mode == "deny" {
+		rights = pkeyDisableAccess
+	}
+	// Worth printing: a kernel that did not enable protection keys would
+	// make pkey_alloc fail rather than make this case pass quietly, but
+	// when it does fail this says why in one line.
+	cpu, _ := os.ReadFile("/proc/cpuinfo")
+	fmt.Fprintf(os.Stderr, "victim: kernel sees ospke=%v pku=%v\n",
+		bytes.Contains(cpu, []byte(" ospke")), bytes.Contains(cpu, []byte(" pku")))
+
+	key, _, errno := syscall.Syscall(sysPkeyAlloc, 0, rights, 0)
+	if errno != 0 {
+		// No protection keys in this guest: report it as a skip rather
+		// than a failure, and let the harness decide.
+		fmt.Fprintf(os.Stderr, "victim: pkey_alloc: %v\n", errno)
+		os.Exit(77)
+	}
+	fmt.Fprintf(os.Stderr, "victim: pkey_alloc -> %d\n", key)
+
+	b, err := syscall.Mmap(-1, 0, os.Getpagesize(),
+		syscall.PROT_READ|syscall.PROT_WRITE,
+		syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "victim: mmap: %v\n", err)
+		os.Exit(3)
+	}
+	b[0] = 0x5a
+
+	_, _, errno = syscall.Syscall6(sysPkeyMprotect,
+		uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)),
+		syscall.PROT_READ|syscall.PROT_WRITE, key, 0, 0)
+	if errno != 0 {
+		fmt.Fprintf(os.Stderr, "victim: pkey_mprotect: %v\n", errno)
+		os.Exit(3)
+	}
+
+	fmt.Printf("victim: reached (key %d, %s)\n", key, mode)
+	os.Stdout.Sync()
+
+	if b[0] != 0x5a {
+		fmt.Fprintf(os.Stderr, "victim: read back %#x\n", b[0])
+		os.Exit(4)
+	}
+	fmt.Printf("victim: read through key %d succeeded\n", key)
+	os.Exit(0)
+}
+

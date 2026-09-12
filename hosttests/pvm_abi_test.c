@@ -452,19 +452,44 @@ static void cpuid_count(uint32_t leaf, uint32_t sub, uint32_t r[4])
  * register is being asked to be three things at once (the host's, the
  * guest's, and PVM's own supervisor isolation).
  */
+/* Does this CPU have OSPKE, i.e. is there any PKU for KVM to pass through? */
+static bool host_has_ospke(void)
+{
+	uint32_t r[4];
+
+	cpuid_count(7, 0, r);
+	return !!(r[2] & (1u << 4));
+}
+
 static void test_pku_not_advertised(struct vm *v)
 {
 	bool pku = cpuid_has(v->cpuid, 7, 0, 2, 3);
 	bool ospke = cpuid_has(v->cpuid, 7, 0, 2, 4);
+	bool have_ospke = host_has_ospke();
 
-	current_case = "pvm/pku-not-advertised";
-	if (pku || ospke)
-		nok("KVM_GET_SUPPORTED_CPUID advertises%s%s, but PVM forces "
-		    "hardware PKRU to 0 while the guest runs and keeps no "
-		    "guest architectural PKRU",
-		    pku ? " PKU" : "", ospke ? " OSPKE" : "");
+	/*
+	 * Protection keys are half-landed, so this case records which half
+	 * rather than demanding one.  The machinery works -- the guest's key
+	 * reaches the leaf SPTE and the hardware enforces it against the
+	 * guest's own PKRU -- but pvm_set_cpu_caps() does not set the
+	 * capability yet, because doing so hangs the x86/state_test selftest.
+	 *
+	 * What is worth failing on is OSPKE without PKU: OSPKE is derived from
+	 * the guest's CR4.PKE, which the guest can only set if PKU said it
+	 * could, so that combination means the two have come apart.
+	 */
+	current_case = "pvm/pku-state";
+	if (ospke && !pku)
+		nok("OSPKE is advertised without PKU; a guest cannot set "
+		    "CR4.PKE and so cannot reach the keys it is being told "
+		    "about");
+	else if (pku)
+		ok("PKU advertised; security/pkey-denied is what says it works");
+	else if (have_ospke)
+		ok("PKU not advertised (the host has OSPKE, so this is PVM's "
+		   "choice, not the hardware's)");
 	else
-		ok("neither PKU nor OSPKE advertised");
+		ok("the host has no OSPKE, so there is no PKU to advertise");
 }
 
 static void test_pkru_leak(struct vm *v)
