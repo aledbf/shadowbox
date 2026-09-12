@@ -22,6 +22,12 @@ var mounts = []mount{
 	{"devtmpfs", "/dev", "devtmpfs", syscall.MS_NOSUID, "mode=0755"},
 	{"tmpfs", "/tmp", "tmpfs", syscall.MS_NOSUID | syscall.MS_NODEV, "mode=1777"},
 	{"tmpfs", "/run", "tmpfs", syscall.MS_NOSUID | syscall.MS_NODEV, "mode=0755"},
+	// debugfs carries x86/tlb_single_page_flush_ceiling, the threshold
+	// between invalidating a range page by page and flushing the whole
+	// PCID.  It is calibrated for a native INVLPG at about 100ns; under
+	// PVM each one is a hypercall, so the right value is not the default
+	// and the file is how to find out what it is.
+	{"debugfs", "/sys/kernel/debug", "debugfs", syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC, ""},
 }
 
 // Setup mounts the pseudo filesystems and relaxes the two sysctls the
@@ -43,6 +49,12 @@ func Setup() {
 	// landed, which is the single most interesting fact about a PVM
 	// guest.  Without this it is all zeroes.
 	write("/proc/sys/kernel/kptr_restrict", "0")
+
+	// Set by the harness when sweeping the value; left alone otherwise.
+	if v := Cmdline().Get("pvmtest.tlb_ceiling", ""); v != "" {
+		write("/sys/kernel/debug/x86/tlb_single_page_flush_ceiling", v)
+		fmt.Printf("PVMINIT: tlb_single_page_flush_ceiling = %s\n", v)
+	}
 
 	// A panic must reach the serial line, not a reboot.
 	write("/proc/sys/kernel/panic", "-1")
