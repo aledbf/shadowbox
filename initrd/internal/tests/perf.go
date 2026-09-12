@@ -22,7 +22,7 @@ func registerPerf(h *harness.Harness) {
 		Suites:  []string{harness.Perf},
 		Timeout: 120 * 1e9,
 		Fn: func(t *harness.T) error {
-			const n = 2_000_000
+			n := harness.N(2_000_000)
 			start := time.Now()
 			for i := 0; i < n; i++ {
 				syscall.Getpid()
@@ -76,7 +76,7 @@ func registerPerf(h *harness.Harness) {
 		Suites:  []string{harness.Perf},
 		Timeout: 300 * 1e9,
 		Fn: func(t *harness.T) error {
-			const n = 200
+			n := harness.N(200)
 			start := time.Now()
 			for i := 0; i < n; i++ {
 				if _, _, err := runVictim("victim-exit"); err != nil {
@@ -108,7 +108,7 @@ func registerPerf(h *harness.Harness) {
 		Suites:  []string{harness.Perf},
 		Timeout: 180 * 1e9,
 		Fn: func(t *harness.T) error {
-			const n = 50_000
+			n := harness.N(50_000)
 
 			toChild, err := pipePair()
 			if err != nil {

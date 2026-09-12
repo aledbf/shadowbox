@@ -16,6 +16,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,6 +51,12 @@ func main() {
 	sysinit.Banner()
 
 	h := harness.New(suite, tag)
+	if sc := cmdline.Get("pvmtest.scale", ""); sc != "" {
+		if n, err := strconv.Atoi(sc); err == nil {
+			fmt.Printf("PVMINIT: perf iteration counts scaled by %d\n", n)
+			harness.SetScale(n)
+		}
+	}
 	if only := cmdline.Get("pvmtest.only", ""); only != "" {
 		fmt.Printf("PVMINIT: only cases matching %q\n", only)
 		h.Only(only)

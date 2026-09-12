@@ -93,6 +93,23 @@ func New(suite, tag string) *Harness {
 // four benchmarks says less than a profile of the one being asked about.
 func (h *Harness) Only(sub string) { h.only = sub }
 
+// scale multiplies the iteration count of the perf cases.  It exists for the
+// profile mode: "perf record" covers the whole life of the guest, and a case
+// that runs for a second inside a three second boot is a profile of the boot.
+// Scaling the case up until the boot is noise is cheaper than teaching perf
+// to start late, and it does not change what is being measured.
+var scale = 1
+
+func SetScale(n int) {
+	if n > 0 {
+		scale = n
+	}
+}
+
+// N scales an iteration count.  Perf cases use it; correctness cases must
+// not, or "make check" would take as long as the profile does.
+func N(n int) int { return n * scale }
+
 func (h *Harness) Add(c Case) {
 	if c.Timeout == 0 {
 		c.Timeout = 30 * time.Second
