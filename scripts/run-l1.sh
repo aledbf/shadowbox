@@ -37,7 +37,14 @@ install -m 0755 "$TESTBED/scripts/l1-agent.sh" "$payload/agent.sh"
 # The host-side tests, when there are any.  They run in L1 against the
 # loaded vendor module; nothing about them needs the guest.
 [ -d "$OUT/hosttests" ] && cp -r "$OUT/hosttests" "$payload/hosttests"
-[ -d "$OUT/kvm-selftests" ] && cp -r "$OUT/kvm-selftests" "$payload/kvm-selftests"
+# SELFTESTS=<glob> stages only the matching ones.  A full sweep is twenty-odd
+# minutes, which is a long time to wait when the question is about one of them.
+if [ -d "$OUT/kvm-selftests" ]; then
+	mkdir -p "$payload/kvm-selftests"
+	for t in "$OUT/kvm-selftests"/${SELFTESTS:-*}; do
+		[ -e "$t" ] && cp "$t" "$payload/kvm-selftests/"
+	done
+fi
 
 # The KVM modules travel with the payload rather than in the image: the
 # rootfs is bootstrapped once, and the kernel's version string -- and so
