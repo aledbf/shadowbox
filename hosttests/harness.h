@@ -33,7 +33,6 @@
 #endif
 
 /* From arch/x86/include/uapi/asm/pvm_para.h. */
-#define MSR_PVM_LINEAR_ADDRESS_RANGE	0x4b564df0
 #define MSR_PVM_VCPU_STRUCT		0x4b564df1
 #define MSR_PVM_EVENT_ENTRY		0x4b564df4
 #define MSR_PVM_RETU_RIP		0x4b564df5

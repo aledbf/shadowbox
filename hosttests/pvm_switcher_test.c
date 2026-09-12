@@ -328,26 +328,13 @@ static int vcpu_enter_long_mode(struct vm *v, struct guest *g)
 }
 
 /*
- * The guest kernel has to live inside the linear address range the host
- * reserved for it, and the range is what the reset value of
- * MSR_PVM_LINEAR_ADDRESS_RANGE says it is.  Decode its first PML4 index
- * the way pvm_set_msr_linear_address_range() encodes it.
+ * Where to put the guest kernel.  Any lower-half address will do -- that is
+ * the whole of what a PVM guest is allowed -- so this is the base of the half
+ * a real PVM guest kernel uses, picked for documentation value rather than
+ * necessity.  It used to have to be decoded out of the reset value of
+ * MSR_PVM_LINEAR_ADDRESS_RANGE, which no longer exists.
  */
-static int guest_kernel_va(struct vm *v, uint64_t *kva)
-{
-	uint64_t msr = 0;
-	uint64_t index;
-
-	if (get_msr(v, MSR_PVM_LINEAR_ADDRESS_RANGE, &msr) != 1 || !msr)
-		return -1;
-
-	index = msr & 0x1ff;
-	if (index == 0x1ff)
-		return -1;
-
-	*kva = (0x1fffe00ULL | index) << 39;
-	return 0;
-}
+#define KVA_BASE	(1UL << 46)
 
 static int guest_setup(struct vm *v, struct guest *g)
 {
@@ -356,8 +343,7 @@ static int guest_setup(struct vm *v, struct guest *g)
 	memset(v->mem, 0, GUEST_MEM_SIZE);
 	g->mem = v->mem;
 
-	if (guest_kernel_va(v, &g->kva))
-		return -1;
+	g->kva = KVA_BASE;
 
 	g->event_entry = g->kva + O_EVENT;
 

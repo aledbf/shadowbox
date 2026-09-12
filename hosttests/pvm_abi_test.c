@@ -9,9 +9,6 @@
  *
  * The contract being checked is in arch/x86/kvm/pvm/pvm.c:
  *
- *   MSR_PVM_LINEAR_ADDRESS_RANGE  pvm_check_and_set_msr_linear_address_range()
- *                                 rejects anything that is not a well formed,
- *                                 in-bounds range; 0 resets to the default.
  *   MSR_PVM_VCPU_STRUCT           must be page aligned.  An address with no
  *                                 memslot behind it is *accepted* on purpose --
  *                                 a VMM restoring MSRs before memory regions
@@ -33,65 +30,6 @@
  */
 
 #include "harness.h"
-
-/* --- MSR_PVM_LINEAR_ADDRESS_RANGE ------------------------------------- */
-
-static void test_linear_range(struct vm *v)
-{
-	/*
-	 * The encoding is four 9-bit PML indices at bits 0/16/32/48, with
-	 * every byte above each index required to be 0xff.  These are the
-	 * ways of getting that wrong.
-	 */
-	static const struct {
-		const char *why;
-		uint64_t val;
-	} bad[] = {
-		{ "top bytes not all set",	0x0000000000000000ULL | 0x1 },
-		{ "one top byte clear",		0x00ff00ff00ff0100ULL },
-		{ "pml4 start > end",		0xff00ff00ff00ff00ULL | (0x100ULL << 0) | (0x0ULL << 16) },
-		{ "zero-size pml4 range not 0x1ff",
-						0xff00ff00ff00ff00ULL | (0x10ULL << 0) | (0x10ULL << 16) },
-		{ "all bits set",		~0ULL },
-	};
-	uint64_t saved = 0, back = 0;
-	size_t i;
-
-	current_case = "pvm/linear-range/roundtrip";
-	if (get_msr(v, MSR_PVM_LINEAR_ADDRESS_RANGE, &saved) != 1) {
-		nok("MSR_PVM_LINEAR_ADDRESS_RANGE is not readable");
-		return;
-	}
-	if (saved == 0)
-		nok("the default range reads back as 0");
-	else
-		ok("default = %#llx", (unsigned long long)saved);
-
-	for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
-		char name[128];
-
-		snprintf(name, sizeof(name), "pvm/linear-range/reject-%zu", i);
-		current_case = name;
-		if (set_msr(v, MSR_PVM_LINEAR_ADDRESS_RANGE, bad[i].val) > 0)
-			nok("%#llx (%s) was accepted",
-			    (unsigned long long)bad[i].val, bad[i].why);
-		else
-			ok("%s rejected", bad[i].why);
-	}
-
-	/* 0 is the documented way to ask for the default back. */
-	current_case = "pvm/linear-range/zero-resets";
-	if (set_msr(v, MSR_PVM_LINEAR_ADDRESS_RANGE, 0) <= 0) {
-		nok("writing 0 was rejected; it should reset to the default");
-	} else if (get_msr(v, MSR_PVM_LINEAR_ADDRESS_RANGE, &back) != 1) {
-		nok("unreadable after writing 0");
-	} else if (back != saved) {
-		nok("0 gave %#llx, not the default %#llx",
-		    (unsigned long long)back, (unsigned long long)saved);
-	} else {
-		ok("back to %#llx", (unsigned long long)back);
-	}
-}
 
 /* --- MSR_PVM_VCPU_STRUCT, and the memslot under it -------------------- */
 
@@ -204,7 +142,7 @@ static void test_msr_window(struct vm *v)
 	if (survived) {
 		uint64_t dummy;
 
-		if (get_msr(v, MSR_PVM_LINEAR_ADDRESS_RANGE, &dummy) < 0)
+		if (get_msr(v, MSR_PVM_VCPU_STRUCT, &dummy) < 0)
 			nok("the vCPU stopped answering after the sweep");
 		else
 			ok("%d MSRs x %zu values, host still answering",
@@ -212,8 +150,8 @@ static void test_msr_window(struct vm *v)
 			   sizeof(values) / sizeof(values[0]));
 	}
 
-	/* Put the range back so later cases start from a known state. */
-	set_msr(v, MSR_PVM_LINEAR_ADDRESS_RANGE, 0);
+	/* Put the PVCS back so later cases start from a known state. */
+	set_msr(v, MSR_PVM_VCPU_STRUCT, 0);
 }
 
 /* --- memslot churn under a pinned PVCS -------------------------------- */
@@ -716,7 +654,6 @@ int main(void)
 
 	vm_setup(&v);
 
-	test_linear_range(&v);
 	test_vcpu_struct(&v);
 	test_event_entry(&v);
 	test_msr_window(&v);
