@@ -18,11 +18,14 @@ hdr="$B/usr/include"
 
 # The uapi headers, installed from the tree under test rather than from
 # whatever the build machine's libc ships.
-if [ ! -f "$hdr/linux/kvm.h" ]; then
-	log "installing uapi headers from $KSRC"
-	make -C "$KSRC" O="$B" headers_install INSTALL_HDR_PATH="$B/usr" -s ||
-		die "headers_install failed"
-fi
+#
+# Every time, not just when they are missing.  The tests include the tree's
+# <asm/pvm_para.h> for the PVM ABI, so a stale copy here is a copy of an ABI
+# the kernel under test no longer implements -- which is a test failure that
+# looks like a kernel bug.
+log "installing uapi headers from $KSRC"
+make -C "$KSRC" O="$B" headers_install INSTALL_HDR_PATH="$B/usr" -s ||
+	die "headers_install failed"
 
 mkdir -p "$OUT/hosttests"
 for src in "$TESTBED"/hosttests/*.c; do

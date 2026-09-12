@@ -43,6 +43,8 @@
  * pvm_mode() turns into a PVM guest.
  */
 
+#include <stddef.h>
+
 #include "harness.h"
 
 #include <signal.h>
@@ -56,11 +58,15 @@
 #define HOST_USER_DS	0x2b
 #define GOOD_SEL	(((uint32_t)HOST_USER_DS << 16) | HOST_USER_CS)
 
-/* Offsets into struct pvm_vcpu_struct, from <uapi/asm/pvm_para.h>. */
-#define PVCS_USER_CS	0x40	/* u16 user_cs, then u16 user_ss */
-#define PVCS_EVENT_VEC	0x46
-#define PVCS_EFLAGS	0x50
-#define PVCS_RIP	0x58
+/*
+ * Offsets into struct pvm_vcpu_struct, taken from the struct rather than
+ * written out: the guest here builds its PVCS as raw bytes, so a field moving
+ * would otherwise leave these pointing somewhere plausible and wrong.
+ */
+#define PVCS_USER_CS	offsetof(struct pvm_vcpu_struct, user_cs)
+#define PVCS_EVENT_VEC	offsetof(struct pvm_vcpu_struct, event_vector)
+#define PVCS_EFLAGS	offsetof(struct pvm_vcpu_struct, eflags)
+#define PVCS_RIP	offsetof(struct pvm_vcpu_struct, rip)
 
 /* Guest physical layout, all offsets from GUEST_PHYS_BASE. */
 #define O_PML4		0x0000

@@ -28,16 +28,18 @@
 
 #include <linux/kvm.h>
 
+/*
+ * The PVM ABI, from the tree under test rather than restated here.  These
+ * used to be a hand-copied block of #defines, which is how the tests came to
+ * be driving MSR numbers the kernel had stopped using.  build-hosttests.sh
+ * installs the uapi headers from $KSRC and puts them first on the include
+ * path, so this is that tree's contract, not the build machine's.
+ */
+#include <asm/pvm_para.h>
+
 #ifndef X86_CR4_PKE
 #define X86_CR4_PKE (1UL << 22)
 #endif
-
-/* From arch/x86/include/uapi/asm/pvm_para.h. */
-#define MSR_PVM_VCPU_STRUCT		0x4b564df1
-#define MSR_PVM_EVENT_ENTRY		0x4b564df4
-#define MSR_PVM_RETU_RIP		0x4b564df5
-#define PVM_VIRTUAL_MSR_BASE		0x4b564df0
-#define PVM_VIRTUAL_MSR_MAX_NR		15
 
 #define GUEST_PHYS_BASE	0x100000UL
 #define GUEST_MEM_SIZE	(8UL << 20)
