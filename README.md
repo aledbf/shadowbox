@@ -3,6 +3,13 @@
 Builds the two kernels the PVM port needs and runs a suite against them.
 Nothing here touches this machine's running kernel.
 
+**Picking this up cold?** `docs/BRIEFING.md` is where it stands: the
+measurements, what is structural and what is not, what has already been tried
+and why it failed, and the ways to measure that do not fool you. Read it before
+proposing a performance change or a smaller diff. `docs/STATUS.md` is the
+bring-up record and `docs/DEBUGGING.md` is how to see into a guest that dies
+before it can print.
+
 Only one step can need root, and only on some machines: building the L1
 root filesystem. `mmdebstrap` does it unprivileged where unprivileged
 user namespaces are allowed, but Ubuntu 24.04 and later restrict those by

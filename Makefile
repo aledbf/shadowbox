@@ -1,5 +1,8 @@
 # PVM testbed.
 #
+# Where it stands, and how to measure it without fooling yourself:
+#   docs/BRIEFING.md
+#
 # make regress  everything that must pass before anything riskier is run
 # make stage0   guest kernel as an ordinary KVM guest -- no PVM host needed
 # make stage1   host kernel boots in L1 and kvm-pvm registers
