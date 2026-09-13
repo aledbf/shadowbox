@@ -370,3 +370,116 @@ TCG without LA57 (`-cpu max`): security 20/22 with the same `invd` and
 `wbinvd`, default 36/37 with the same `time/monotonic`.  Emulator artefacts;
 LA57 is validated for the default and security suites, with and without host
 KPTI.
+
+# PVM next performance pass — result
+
+## Baseline
+
+| | |
+|---|---|
+| commit | `86c154bbb372` (baseline), `cd72210cfe08` (final) |
+| host | i9-13900HK, SMT on, powersave; L0 7.0.0-31-generic; L1 8 vCPUs, 8G, no THP |
+| guest | same tree, 1G, 1/2/4/8/16 vCPUs |
+| KPTI | off for the matrix; on for Phase A and LA57 runs |
+| LA57 | none in hardware; validated under TCG |
+| repetitions | 5, medians, vendors interleaved |
+
+Kernel commits this pass, on `pvm-7.3-series`:
+
+- `a15d1cf2eb40` counter snapshots bracketing a benchmark (MSR_PVM_STATS_MARK, counting build only)
+- `722ec0cc66e2` HC_WRMSR counted by MSR (counting build only)
+- `3ca770c850cc` mmu_lock wait/hold timing in the shadow page fault (counting build only; debug, drop before upstream)
+- `43bfc5193d46` selftests: msr_filter_allow skips itself under kvm-pvm
+- `3d28f4e6c329` #PF exits by guest mode and pages_2m (counting build only)
+- `cd72210cfe08` the LA57 fix to the M4 SMEP emulation
+
+Experiments kept only as branches: `pvm-icr-fastpath-experiment` (regressed),
+`pvm-gpte-hva-experiment` (neutral).
+
+## KPTI alias validation
+
+- LA57: guest on a 5-level host livelocked starting init -- an M4 bug, fixed
+  (`cd72210cfe08`); default and security suites then pass with and without host
+  KPTI, except three cases that fail identically under TCG on 4 levels.
+- max vCPU: 1024 vCPUs, the last one's alias used, 1023 other PVCS pages
+  untouched, vCPU 1025 refused.
+- migration: 20,000 direct-switch rounds across 104 CPU moves; PVCS moved three
+  times with the old page poisoned, all rounds clean; KPTI on and off.
+- security: default, security, pti default and host tests clean on 4 levels
+  after the M4 change; sanitizer clean.
+
+## HC_WRMSR
+
+| benchmark (2 vCPUs) | total | ICR | TSC deadline | EOI | other |
+|---|---:|---:|---:|---:|---:|
+| syscall | 686 | 64 | 621 | 0 | 1 |
+| context-switch | 90,470 | 74,433 | 16,034 | 0 | 3 |
+| page-fault | 1,007 | 91 | 915 | 0 | 1 |
+| fork-exec | 6,991 | 2,302 | 4,687 | 0 | 2 |
+| parallel-fork | 1,563 | 73 | 1,489 | 0 | 1 |
+| parallel-fault | 498 | 55 | 442 | 0 | 1 |
+
+### ICR fastpath
+hit rate: 100%.
+before: context-switch 7,770 / 7,416 ns (A1/A2).
+after: 11,120 ns.
+decision: reverted -- faster re-entry produced ~50% more IPIs and HLT exits per
+round trip.
+
+### TSC deadline fastpath
+not attempted: gated on the ICR fastpath proving the approach.
+
+## Parallel fault scaling (fault-scaling, counting build, 8 vCPUs vs 1)
+
+| metric | 1 | 2 | 4 | 8 |
+|---|---:|---:|---:|---:|
+| ns/page x vCPUs | 5,713 | 7,249 | 8,115 | 10,406 |
+| PF retry/PF | 0 | 0 | 0 | 0 |
+| PF spurious/PF | 0.0003 | 0.0002 | 0.0001 | 0.0000 |
+| lock wait ns/PF-fixed | 0 | 19 | 76 | 300 |
+| lock hold ns/PF-fixed | 210 | 310 | 346 | 390 |
+| shadow alloc (cache miss)/page | 0.0027 | 0.0027 | 0.0023 | 0.0026 |
+| remote flush/page | 0 | 0.0011 | 0.0017 | 0.0021 |
+
+## Identified bottleneck
+
+Not a scaling collapse in the hypervisor.  First-touch faults lose ~2x per
+page from 1 to 8 vCPUs, and so does kvm-intel in this nesting (ept=0 1.6x, EPT
+2.2x): the environment accounts for most of it.  Inside the hypervisor, the one
+mechanism that grows with vCPUs is mmu_lock contention, ~400 ns of the ~3,600
+ns lost per page at 8 vCPUs.  parallel-fault's 4-10x ratio is structural:
+shadow paging pays ~2.3 exits for every freshly mapped page, a TDP guest pays
+nothing for memory it has used before.  The testbed's L1 adds 0.3 of those
+exits per page by lacking THP.
+
+## Optimization attempted
+
+Shorter mmu_lock hold: re-read gPTEs under the lock through the walker's
+cached hva.  Hold -8..-12% as predicted; no benchmark moved.  Reverted.
+
+## Result
+
+Final matrix at `cd72210cfe08` against the v2 baseline (scaling cases out of
+the perf suite): every point within its spread; at 8 vCPUs fork-exec -3.8%,
+page-fault +0.6%, parallel-fault -24% (spread 35%), syscall -2.3%.  No
+non-PVM regression: the kept shadow MMU change is gated on
+shadow_emulate_smep_with_nx, false for every other vendor.
+
+## Remaining dominant cost
+
+Per-fault exits of shadow paging on freshly mapped memory: 2.3 per page, of
+which 1.0 is a #PF the hypervisor only reflects to the guest.
+
+## Next recommendation
+
+1. Enable THP in the testbed's L1 (and keep a no-THP run for comparison): it
+   is what production hosts have, and it removes a fifth of the fault exits
+   this testbed measures.
+2. The reflected #PF: 43% of fault exits carry no shadow work.  Anything that
+   lets the guest see a not-present fault on its own page tables without a
+   round trip -- for instance a shadow SPTE state that tells the switcher the
+   guest PTE is not present -- would cut parallel-fault's exits by that much.
+   It needs its own design and security argument (the switcher would be
+   deciding what a fault means).
+3. Only then mmu_lock: moving the shadow fault to read-lock mode is upstream
+   shadow MMU work, not a PVM change.
