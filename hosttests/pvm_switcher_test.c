@@ -83,6 +83,7 @@
 #define O_UCODE		0xb000
 #define O_USTACK	0xc000
 #define O_MAPPED_PAGES	13	/* everything above, mapped into the kernel */
+#define O_PML4_ALT	0xd000	/* a second address space: kernel half only */
 
 /* Two pages with no memslot behind them: the guest's only output device. */
 #define MMIO_REPORT	0xd0000000UL	/* written from user mode */
@@ -98,6 +99,8 @@
 #define CTRL_RIP	0x00	/* u64 */
 #define CTRL_EFLAGS	0x08	/* u32 */
 #define CTRL_SEL	0x0c	/* u32: user_cs | user_ss << 16 */
+#define CTRL_PGD1	0x10	/* u64: first CR3 the pgtbl variant loads */
+#define CTRL_PGD2	0x18	/* u64: second, and the one it returns to user on */
 
 #define PTE_P		(1ULL << 0)
 #define PTE_RW		(1ULL << 1)
@@ -113,6 +116,7 @@ struct guest {
 	uint64_t smod_entry;	/* also the LSTAR entry */
 	uint64_t retu_rip;	/* the SYSCALL that returns to user mode */
 	uint64_t event_entry;
+	bool pgtbl_variant;	/* supervisor mode loads two CR3s each round */
 };
 
 /* --- hand assembly ----------------------------------------------------- */
@@ -191,6 +195,50 @@ static void build_smod_code(struct guest *g)
 	 * The return-to-user synthetic instruction: a SYSCALL at
 	 * MSR_PVM_RETU_RIP.  The hypervisor adds the 2 itself.
 	 */
+	g->retu_rip = a.va;
+	EMIT(&a, 0x0f, 0x05);				/* syscall */
+	EMIT(&a, 0x0f, 0x0b);				/* ud2 */
+}
+
+/* PVM_HC_LOAD_PGTBL(flags 0, pgd from the control page at @ctrl_off). */
+static void emit_load_pgtbl(struct asmbuf *a, uint64_t ctrl, uint8_t ctrl_off)
+{
+	emit_movabs(a, GPR_RSI, ctrl);
+	emit_movabs(a, GPR_RAX, PVM_HC_LOAD_PGTBL);
+	EMIT(a, 0x31, 0xdb);				/* xor %ebx,%ebx: flags */
+	EMIT(a, 0x4c, 0x8b, 0x56, ctrl_off);		/* mov off(%rsi),%r10: pgd */
+	EMIT(a, 0x0f, 0x05);				/* syscall */
+}
+
+/*
+ * The same supervisor mode, but each round it first loads two page tables
+ * with PVM_HC_LOAD_PGTBL: CTRL_PGD1 and then CTRL_PGD2.  Flags 0 -- keep the
+ * TLB, 4-level -- is the exact word the switcher is allowed to serve itself.
+ * The rest is build_smod_code(): copy the control page into the PVCS and
+ * return to user mode, which runs on whatever CTRL_PGD2 names.
+ */
+static void build_pgtbl_smod_code(struct guest *g)
+{
+	struct asmbuf a = { g->mem + O_SCODE + 0x200, g->kva + O_SCODE + 0x200 };
+	uint64_t pvcs = g->kva + O_PVCS;
+	uint64_t ctrl = g->kva + O_CTRL;
+
+	g->smod_entry = a.va;
+
+	emit_load_pgtbl(&a, ctrl, CTRL_PGD1);
+	emit_load_pgtbl(&a, ctrl, CTRL_PGD2);
+
+	emit_movabs(&a, GPR_RSP, UVA_STACK_TOP);
+	emit_movabs(&a, GPR_RDI, pvcs);
+	emit_movabs(&a, GPR_RSI, ctrl);
+
+	EMIT(&a, 0x48, 0x8b, 0x46, CTRL_RIP);		/* mov CTRL_RIP(%rsi),%rax */
+	EMIT(&a, 0x48, 0x89, 0x47, PVCS_RIP);		/* mov %rax,PVCS_RIP(%rdi) */
+	EMIT(&a, 0x8b, 0x46, CTRL_EFLAGS);		/* mov CTRL_EFLAGS(%rsi),%eax */
+	EMIT(&a, 0x89, 0x47, PVCS_EFLAGS);		/* mov %eax,PVCS_EFLAGS(%rdi) */
+	EMIT(&a, 0x8b, 0x46, CTRL_SEL);			/* mov CTRL_SEL(%rsi),%eax */
+	EMIT(&a, 0x89, 0x47, PVCS_USER_CS);		/* mov %eax,PVCS_USER_CS(%rdi) */
+
 	g->retu_rip = a.va;
 	EMIT(&a, 0x0f, 0x05);				/* syscall */
 	EMIT(&a, 0x0f, 0x0b);				/* ud2 */
@@ -276,6 +324,13 @@ static void build_page_tables(struct guest *g)
 	put_pte(g, O_PT_U, PT_INDEX(UVA_BASE + 0x1000, 1),
 		(base + O_USTACK) | PTE_P | PTE_RW | PTE_US);
 	put_pte(g, O_PT_U, PT_INDEX(UVA_MMIO, 1), MMIO_REPORT | PTE_P | PTE_RW | PTE_US);
+
+	/*
+	 * The other address space shares the kernel half and has no user
+	 * half at all.  Supervisor mode can run on it; user mode never does,
+	 * so the hypervisor never has a user-side root to pair with it.
+	 */
+	put_pte(g, O_PML4_ALT, PT_INDEX(g->kva, 4), (base + O_PDP_K) | PTE_P | PTE_RW);
 }
 
 /* --- vCPU state --------------------------------------------------------- */
@@ -311,7 +366,14 @@ static int vcpu_enter_long_mode(struct vm *v, struct guest *g)
 
 	s.cr0 = 0x80050033;	/* PG | AM | WP | NE | ET | MP | PE */
 	s.cr3 = GUEST_PHYS_BASE + O_PML4;
-	s.cr4 = 1UL << 5;	/* PAE */
+	/*
+	 * PCIDE as well, as a Linux guest has.  PVM_HC_LOAD_PGTBL without the
+	 * TLB flag turns into a CR3 load with NOFLUSH, and without PCIDE that
+	 * is a reserved bit: kvm_set_cr3() refuses it and the hypercall does
+	 * nothing at all, which is how the pgtbl case first "passed" on a
+	 * kernel that had the bug it checks for.
+	 */
+	s.cr4 = (1UL << 5) | (1UL << 17);	/* PAE | PCIDE */
 	s.efer = 0xd01;		/* NXE | LMA | LME | SCE */
 
 	set_seg(&s.cs, 0x10, 0xb, 1, 0);	/* exec/read, accessed, 64-bit */
@@ -354,6 +416,8 @@ static int guest_setup(struct vm *v, struct guest *g)
 	g->event_entry = g->kva + O_EVENT;
 
 	build_smod_code(g);
+	if (g->pgtbl_variant)
+		build_pgtbl_smod_code(g);
 	build_umod_code(g);
 	build_event_code(g, 0, MARK_USER_EVENT);
 	build_event_code(g, 512, MARK_SUPERVISOR_EVENT);
@@ -384,6 +448,53 @@ static void ctrl_set(struct guest *g, uint64_t rip, uint32_t eflags, uint32_t se
 	memcpy(c + CTRL_RIP, &rip, 8);
 	memcpy(c + CTRL_EFLAGS, &eflags, 4);
 	memcpy(c + CTRL_SEL, &sel, 4);
+}
+
+static void ctrl_set_pgds(struct guest *g, uint64_t pgd1, uint64_t pgd2)
+{
+	uint8_t *c = g->mem + O_CTRL;
+
+	memcpy(c + CTRL_PGD1, &pgd1, 8);
+	memcpy(c + CTRL_PGD2, &pgd2, 8);
+}
+
+/*
+ * The vCPU's "exits" counter from its binary stats file: every return from
+ * guest mode to the hypervisor, including the ones userspace never sees.  A
+ * direct switch is not one; an emulated ERETU is.  That is the only way from
+ * here to tell the two paths apart by count rather than by outcome.
+ */
+static int vcpu_stat(struct vm *v, const char *want, uint64_t *out)
+{
+	struct kvm_stats_header h;
+	struct kvm_stats_desc *d;
+	size_t dsz;
+	uint32_t i;
+	int fd, r = -1;
+
+	fd = ioctl(v->vcpu, KVM_GET_STATS_FD, NULL);
+	if (fd < 0)
+		return -1;
+	if (pread(fd, &h, sizeof(h), 0) != sizeof(h))
+		goto out;
+
+	dsz = sizeof(*d) + h.name_size;
+	d = malloc(dsz);
+	if (!d)
+		goto out;
+	for (i = 0; i < h.num_desc; i++) {
+		if (pread(fd, d, dsz, h.desc_offset + i * dsz) != (ssize_t)dsz)
+			break;
+		if (strcmp(d->name, want))
+			continue;
+		if (pread(fd, out, sizeof(*out), h.data_offset + d->offset) == sizeof(*out))
+			r = 0;
+		break;
+	}
+	free(d);
+out:
+	close(fd);
+	return r;
 }
 
 /* --- running it --------------------------------------------------------- */
@@ -613,6 +724,87 @@ static void test_s4_selectors(struct vm *v, struct guest *g)
 	}
 }
 
+/*
+ * SWITCH_FLAGS_NO_DS_CR3 has to follow the address space the switcher loads,
+ * in both directions.
+ *
+ * Each round supervisor mode loads CTRL_PGD1 and then CTRL_PGD2 and returns to
+ * user mode on the second.  User mode's SYSCALL back is a direct switch, so
+ * the first load always finds a table the hypervisor built in user mode --
+ * empty -- and exits.  The hypervisor serves it and re-enters in supervisor
+ * mode on PGD1 with a fresh table, and the second load and the return to user
+ * are then the switcher's to serve.
+ *
+ * With PGD1 the alternate address space, which never runs in user mode and so
+ * has no user-side root, that re-entry sets NO_DS_CR3.  Loading PGD2 through
+ * the switcher must clear it again, since PGD2's pair is cached; a switcher
+ * that only ever sets it turns the return to user into one more exit per
+ * round.  The control run loads the main address space twice and has no
+ * reason to set the bit at all.  Both runs are the same code with the same
+ * number of guest instructions, so the difference between them is the bug.
+ */
+#define PGTBL_ROUNDS 200
+
+static int pgtbl_round_exits(struct vm *v, uint64_t *exits)
+{
+	struct outcome o;
+	uint64_t before, after;
+	char desc[256];
+
+	if (vcpu_stat(v, "exits", &before)) {
+		nok("could not read the vCPU's exits counter: %s", strerror(errno));
+		return -1;
+	}
+	guest_run(v, &o, PGTBL_ROUNDS, 30);
+	if (vcpu_stat(v, "exits", &after)) {
+		nok("could not read the vCPU's exits counter: %s", strerror(errno));
+		return -1;
+	}
+	if (o.reports < PGTBL_ROUNDS) {
+		describe(&o, desc, sizeof(desc));
+		nok("the guest stopped going round: %s", desc);
+		return -1;
+	}
+	*exits = after - before;
+	return 0;
+}
+
+static void test_pgtbl_no_ds_cr3(struct vm *v, struct guest *g)
+{
+	uint64_t main_as = GUEST_PHYS_BASE + O_PML4;
+	uint64_t alt_as = GUEST_PHYS_BASE + O_PML4_ALT;
+	uint64_t control, stale;
+	double extra;
+
+	current_case = "pvm/pgtbl-fastpath-clears-no-ds-cr3";
+
+	ctrl_set_pgds(g, main_as, main_as);
+	if (warm_up(v, g, "pgtbl"))
+		return;
+
+	if (pgtbl_round_exits(v, &control))
+		return;
+
+	ctrl_set_pgds(g, alt_as, main_as);
+	/* One round to settle the alternate root into the MMU's cache. */
+	if (warm_up(v, g, "pgtbl"))
+		return;
+	if (pgtbl_round_exits(v, &stale))
+		return;
+
+	extra = ((double)stale - (double)control) / PGTBL_ROUNDS;
+	if (extra >= 0.5)
+		nok("%.2f more exits per round through an address space without "
+		    "a pair (%llu vs %llu over %d rounds): returns to user mode "
+		    "are exiting after the switcher loaded a paired root",
+		    extra, (unsigned long long)stale,
+		    (unsigned long long)control, PGTBL_ROUNDS);
+	else
+		ok("%llu exits with the unpaired detour, %llu without, over %d rounds",
+		   (unsigned long long)stale, (unsigned long long)control,
+		   PGTBL_ROUNDS);
+}
+
 int main(void)
 {
 	struct vm v = {};
@@ -648,6 +840,13 @@ int main(void)
 	vm_setup(&v);
 	if (!guest_setup(&v, &g))
 		test_s4_selectors(&v, &g);
+	vm_teardown(&v);
+
+	vm_setup(&v);
+	g.pgtbl_variant = true;
+	if (!guest_setup(&v, &g))
+		test_pgtbl_no_ds_cr3(&v, &g);
+	g.pgtbl_variant = false;
 	vm_teardown(&v);
 
 	printf("1..%d\n", pass + fail);
