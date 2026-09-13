@@ -365,5 +365,8 @@ After the fix:
 
 The three remaining failures look like the emulator rather than PVM: INVD and
 WBINVD at CPL3 are TCG's to fault on (the guest runs at CPL3 of an emulated
-L1), and time/monotonic is a 30-second loop.  Control: the same suites under
-TCG without LA57 -- see below.
+L1), and time/monotonic is a 30-second loop.  Control, the same suites under
+TCG without LA57 (`-cpu max`): security 20/22 with the same `invd` and
+`wbinvd`, default 36/37 with the same `time/monotonic`.  Emulator artefacts;
+LA57 is validated for the default and security suites, with and without host
+KPTI.
