@@ -29,8 +29,9 @@ NO_CASE="__baseline_no_case__"
 counts() { # <logfile> -> "event count" lines
 	sed -n 's/^L1: mmu: *\([0-9][0-9]*\) *\([a-z_]*:[a-z_]*\).*/\2 \1/p' "$1"
 	# A CONFIG_KVM_PVM_STATS host prints one PVMSTATS line per vCPU as the
-	# guest is torn down; sum them, in the order they were printed.
-	tr -d '\r' < "$1" | sed -n 's/.*PVMSTATS: vcpu=[0-9]* //p' | tr ' ' '\n' |
+	# guest is torn down; sum them, in the order they were printed.  Only the
+	# console copy: the agent echoes dmesg back under "L1: " prefixes.
+	tr -d '\r' < "$1" | grep -av '^L1: ' | sed -n 's/.*PVMSTATS: vcpu=[0-9]* //p' | tr ' ' '\n' |
 		awk -F= 'NF == 2 {
 			if (!($1 in sum)) order[++n] = $1
 			sum[$1] += $2
