@@ -168,13 +168,18 @@ Ordered by how much is on the table.
 1. **The shadow MMU.** `parallel-fault` 10-22x, `parallel-fork` 5-8x,
    `fork-exec` 2.7-5.1x. This is where nearly all of the remaining cost is, and
    almost nothing has been tried. Shadow paging costs exactly 2.0 exits per
-   first-touched page. The exit histogram for `parallel-fault` is roughly 152k
-   `PF excp` to 40k `HC_TLB_INVLPG`.
+   first-touched page. At the tip, `parallel-fault`'s exits are page faults
+   and essentially nothing else.
 
-2. **Batching `HC_TLB_INVLPG`.** ~40k of them in a `parallel-fault` run, one
-   hypercall each. The guest already knows it is flushing a range. Never
-   attempted; would need an ABI addition, which is now cheap (see "the feature
-   bitmap" below).
+2. **`HC_WRMSR`: IPIs and the timer.** The largest exit reason after page
+   faults, 11.7% over the perf suite: 67k x2APIC ICR writes and 24k
+   TSC_DEADLINE writes. KVM serves both in its exit fastpath for VMX; PVM
+   always returns `EXIT_FASTPATH_NONE`. See `docs/TUNING-LOG.md`.
+
+   (`HC_TLB_INVLPG` batching was tried and rejected: 38k of the suite's 47k
+   single-page flushes happen in the first 60ms of guest boot, remapping early
+   fixmap slots, and the ranges benchmarks flush average 1.1 pages. The
+   implementation is on kernel branch `pvm-tlb-range-experiment`.)
 
 3. **More work served inside the switcher.** The CR3 fast path is the proof
    that this pays. What else exits for work the hypervisor does by lookup?
@@ -187,9 +192,12 @@ Ordered by how much is on the table.
    sequence — two entry paths per syscall where native has one.
 
 5. **The protection-key swap, ~13 ns of that.** Currently unconditional for any
-   guest with `CR4.PKE`, which a Linux guest always sets. It is only *needed*
-   when the guest's user PKRU denies a key its kernel pages use; a narrower
-   test would make it free in the common case, at the cost of a heuristic.
+   guest with `CR4.PKE`, which a Linux guest always sets. A "user PKRU equals
+   the supervisor value" short circuit never fires for Linux, whose tasks run
+   on `init_pkru` = 0x55555554 (counted: every one of 2.6M swaps). Making it
+   free means letting supervisor mode run on the user's PKRU, which changes
+   what the guest kernel's accesses to user pages are subject to. A decision,
+   not an optimisation; see `docs/TUNING-LOG.md`, Phase 5.
 
 6. **`XCR0` switching.** PVM deliberately keeps the guest's `XCR0` equal to the
    host's to avoid an `XSETBV` on every entry and exit, which is expensive when
@@ -260,15 +268,11 @@ the LA57 top-p4d merge in one move.
   and the guest distributing keys. See "Protection Keys" in `pvm-spec.rst`.
 - **FRED hosts.** Refused at module load: the switcher owns the IDT entry
   paths and FRED replaces them.
-- **Direct switching under host KPTI.** Inhibited, because both direct switches
-  reach the PVCS through its direct-map address and the guest's root under KPTI
-  does not map it. Every guest ring switch on a KPTI host is therefore an exit.
-  Fixable by mapping the PVCS at a fixed per-CPU address in the guest root.
-- **Seven `WARNING`s at every `insmod`** — 5 from `kvm-x86-nested-ops.h`, 2
-  from `kvm-x86-pmu-ops.h`. Never investigated.
-- **`x86/userspace_msr_exit_test`** fails one subtest
-  (`msr_filter_allow` wants `X86_RDMSR`, gets `SHUTDOWN`). Pre-existing, in
-  `configs/kvm-selftests-expect.txt`, never chased.
+- **`x86/userspace_msr_exit_test`** fails one subtest, and cannot pass: its
+  guest is not a PVM guest, so the #GP KVM injects when userspace refuses a
+  WRMSR has no event entry to go to and becomes a triple fault. Recorded in
+  `configs/kvm-selftests-expect.txt`.
+- **Not tested on a 5-level host**, the per-VM PVCS alias included.
 
 ---
 
@@ -308,4 +312,5 @@ not built for. **Anything that needs a new hypercall, a new PVCS field, or an
 optional behaviour can take a `PVM_FEATURE_` bit and does not need a version
 bump.** Before that existed, every ABI change was a silent break — the removal
 of `MSR_PVM_LINEAR_ADDRESS_RANGE` would have left an old guest reading zero and
-relocating itself into the hypervisor's half. No feature bits are defined yet.
+relocating itself into the hypervisor's half. No feature bits are defined yet
+(the one the TLB range experiment took is not in the series).

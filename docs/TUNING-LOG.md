@@ -109,9 +109,9 @@ PCIDE, so LOAD_PGTBL with the TLB bit clear became a CR3 with a reserved bit,
 refusal.  The counters showed it (`pgtbl_published_paired=0` while every hit
 was table entry 0).
 
-Side finding, not fixed yet: `handle_hc_load_pagetables()` drops the return
-value of `kvm_set_cr3()`, so an invalid CR3 load is silently a no-op for the
-guest.
+Side finding: `handle_hc_load_pagetables()` dropped the return value of
+`kvm_set_cr3()`, so an invalid CR3 load was silently a no-op for the guest.
+Fixed in Phase 11.
 
 Benchmark before/after: not yet run on a non-counting build (the real-guest
 sequence is rare: 1,703 NO_DS_CR3 ERETU fallbacks in a whole suite, and not all
@@ -119,7 +119,7 @@ of them are this sequence).  Expected neutral on the matrix.
 
 ## Phase 2 — observability
 
-Kernel `0b1e3c9040bf` (`CONFIG_KVM_PVM_STATS`, default n).  Build a counting
+Kernel `bab16a13fba6` (`CONFIG_KVM_PVM_STATS`, default n).  Build a counting
 host with `HOST_CONFIG_EXTRA=CONFIG_KVM_PVM_STATS=y`; perf-matrix refuses one.
 Every number in the Baseline counter tables above comes from it.
 
@@ -234,10 +234,72 @@ Overlapping; not Phase 6.  The whole machine read slower than at the baseline
 (kvm-intel at 16 vCPUs 352.9 -> 374.9 ns too).  Neutral, as expected for
 these three.
 
+## Phase 7 — direct switching under host KPTI
+
+Kernel `8eb2f4c62dcf` (LDT remap slot kept out of the root template) and
+`5316c2d7ff7c` (the alias).
+
+Not the plan's "fixed per-CPU address in the CPU entry area".  The CPU entry
+area is mapped in every host user page table and every other VM's roots, and
+host KPTI is on by default exactly where Meltdown reads supervisor mappings
+from CPL 3: a PVCS there would leak guest register state to every host
+process and every other guest.  Instead each VM gets its own copy of the root
+template with a private branch in the LDT remap PGD slot mapping each vCPU's
+PVCS at `LDT_BASE_ADDR + vcpu_idx` pages.  Only that VM's roots map it; no
+per-CPU remapping on vCPU migration; a changed translation retires the vCPU's
+ASID.  Details in the commit and in S9.
+
+Host booted `pti=on`, 2 vCPUs, 3 reps, medians (non-counting builds):
+
+| benchmark | before | after | after, no KPTI |
+|---|---:|---:|---:|
+| syscall ns/getpid | 2,792 | 212.8 | 207.1 |
+| context-switch ns | 51,180 | 7,940 | 8,634 |
+| fork-exec us | 3,271 | 2,250 | 2,319 |
+| parallel-fork us | 1,533 | 947 | 942.8 |
+| parallel-fault ns | 3,098 | 2,389 | 2,324 |
+
+Counting builds, whole suite under `pti=on`:
+
+| | before | after |
+|---|---:|---:|
+| exits | 6,139,099 | 728,500 |
+| ERETU exits | 2,780,825 | 1,571 |
+| SYSCALL exits (user -> supervisor) | 2,593,156 | 0 |
+| direct switches to supervisor / to user | 0 / 0 | 2,581,320 / 2,762,282 |
+
+Tests on `pti=on`: default, security, profile (NMIs into the switcher's CPL0
+window), host tests (S1, S2, S4 and the pgtbl case now on the direct switch).
+Without KPTI: default and host tests.  Sanitizer clean on all.  Not tested:
+5-level paging.
+
+## Phases 8-10 — not undertaken
+
+The plan gates them on a profile showing their cost; none did.  Per-entry
+`tss_ex` writes are seven stores in an exit of ~2 us; the unconditional PVCS
+dirty mark is a memslot lookup when dirty logging is off; the host entry
+path checks were not visible.  The host cycles profile available here
+(`run-l1.sh profile`) cannot separate a case from the guest's emulated boot,
+so it could not have justified them either.
+
+## Phase 11 — warnings and selftests
+
+- `238692dc3440`: kvm-pvm left 3 mandatory x86 ops, 5 nested ops and 2 PMU
+  ops NULL -- ten WARNs at insmod, of which the testbed only ever showed
+  seven (dmesg tail).  Two of the three x86 ones were live bugs:
+  `get_cpl_no_cache()` on every preempted vcpu_put() returned whatever was in
+  the register, and `recalc_intercepts()` was a NOP by accident rather than
+  by design.  insmod is silent now.
+- `86c154bbb372`: `PVM_HC_LOAD_PGTBL` with a CR3 KVM refuses raises #GP
+  instead of silently not switching.
+- `x86/userspace_msr_exit_test`: explained, not fixable from PVM (the
+  selftest guest has no PVM event entry to receive the #GP KVM injects).
+
 ## Open items found on the way
 
 - `HC_WRMSR` (ICR, TSC_DEADLINE): exit fastpath for PVM.
-- `handle_hc_load_pagetables()` ignores `kvm_set_cr3()` failure.
+- ~~`handle_hc_load_pagetables()` ignores `kvm_set_cr3()` failure.~~ Fixed
+  in Phase 11.
 - A guest without PCIDE sends LOAD_PGTBL with the TLB bit set on every
   context switch (`~val >> 63`), which the switcher never serves.  Linux on
   x86-64 with PCID hardware has PCIDE; worth a check on hosts without PCID.
