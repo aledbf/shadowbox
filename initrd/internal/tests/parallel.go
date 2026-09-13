@@ -315,3 +315,72 @@ func registerUnmapScaling(h *harness.Harness) {
 		},
 	})
 }
+
+// fault-rounds: parallel-fault's shape -- every worker maps a region, touches
+// it, unmaps it, round after round -- with the workers held on a barrier
+// between rounds and each round bracketed by counter snapshot marks
+// (1000+2r before round r, 1001+2r after), so a host that counts can say what
+// round 1 cost against round 6.  A TDP guest reuses the same guest physical
+// memory from round 2 on; a shadow-paging guest's SPTEs follow the page
+// tables, which munmap throws away.
+func registerFaultRounds(h *harness.Harness) {
+	h.Add(harness.Case{
+		Name:    "perf/fault-rounds",
+		Suites:  []string{harness.Scaling},
+		Timeout: 600 * 1e9,
+		Fn: func(t *harness.T) error {
+			n := runtime.NumCPU()
+			pages := harness.N(4096)
+			const rounds = 6
+			page := syscall.Getpagesize()
+
+			defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(n))
+
+			for r := 0; r < rounds; r++ {
+				var ready, done sync.WaitGroup
+				start := make(chan struct{})
+				errs := make([]error, n)
+				ready.Add(n)
+				done.Add(n)
+				for i := 0; i < n; i++ {
+					go func(i int) {
+						defer done.Done()
+						if err := pinWorker(i); err != nil {
+							errs[i] = err
+							ready.Done()
+							return
+						}
+						ready.Done()
+						<-start
+						b, err := syscall.Mmap(-1, 0, pages*page,
+							syscall.PROT_READ|syscall.PROT_WRITE,
+							syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS)
+						if err != nil {
+							errs[i] = err
+							return
+						}
+						for off := 0; off < len(b); off += page {
+							b[off] = byte(r)
+						}
+						errs[i] = syscall.Munmap(b)
+					}(i)
+				}
+				ready.Wait()
+				t.Mark(1000+2*r, fmt.Sprintf("perf/fault-rounds/r%d/before", r+1))
+				t0 := time.Now()
+				close(start)
+				done.Wait()
+				d := time.Since(t0)
+				t.Mark(1001+2*r, fmt.Sprintf("perf/fault-rounds/r%d/after", r+1))
+				for _, err := range errs {
+					if err != nil {
+						return err
+					}
+				}
+				t.Metric(fmt.Sprintf("r%d_ns_per_page", r+1),
+					float64(d.Nanoseconds())/float64(n*pages), "ns")
+			}
+			return nil
+		},
+	})
+}

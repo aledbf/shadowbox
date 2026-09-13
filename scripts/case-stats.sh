@@ -5,20 +5,21 @@
 # Per-case counter deltas from a run with pvmtest.statsmsr set, on a host
 # built with CONFIG_KVM_PVM_STATS.
 #
-# The guest writes MSR_PVM_STATS_MARK just before case n (value 2n) and just
-# after it (2n+1), and prints which case each value stands for as
-# PVMTEST-MARK.  The host answers each write by printing every vCPU's
-# counters and the VM's, tagged mark=<value>.  The delta between the two
-# prints is the case alone -- which is what exit-profile.sh approximates by
-# subtracting a second, case-less boot, and what the whole-run counters do
-# not give at all: boot is in them, and boot is where 38k of the suite's 47k
-# single-page TLB flushes turned out to be.
+# The guest writes MSR_PVM_STATS_MARK just before and just after something --
+# the harness does it around every case (2n before case n, 2n+1 after), and a
+# case may bracket its own phases the same way with an even value and the odd
+# one after it -- and prints what each value stands for as PVMTEST-MARK.  The
+# host answers each write by printing every vCPU's counters and the VM's,
+# tagged mark=<value>.  The delta between the two prints of a pair is that
+# phase alone: not the boot, which is where 38k of a suite's 47k single-page
+# TLB flushes turned out to be, and not a second case-less run subtracted
+# from the first.
 #
-# One column per case, one row per counter, vCPUs summed.  The counter regex
-# narrows the rows (default: all).
+# One column per pair, in mark order, one row per counter, vCPUs summed.  The
+# counter regex narrows the rows (default: all).
 #
-#   L1_APPEND= GUEST_APPEND=pvmtest.statsmsr=0x4b564d2f \
-#       LOG_SUFFIX=marks scripts/run-l1.sh perf pvm
+#   GUEST_APPEND=pvmtest.statsmsr=0x4b564d2f LOG_SUFFIX=marks \
+#       scripts/run-l1.sh perf pvm
 #   scripts/case-stats.sh out/logs/l1-perf-pvm-marks.log 'pf_|hc_wrmsr|exits'
 
 source "$(dirname "$0")/lib.sh"
@@ -33,7 +34,7 @@ tr -d '\r' < "$LOG" | awk -v filter="$FILTER" '
 	sub(/.*PVMTEST-MARK: /, "")
 	v = $1; name = $2
 	sub(/\/(before|after)$/, "", name)
-	if (v % 2 == 0) { casename[v / 2] = name; if (v / 2 > ncase) ncase = v / 2 }
+	if (v % 2 == 0) label[v] = name
 	next
 }
 /^L1: / { next }
@@ -52,20 +53,24 @@ tr -d '\r' < "$LOG" | awk -v filter="$FILTER" '
 	}
 }
 END {
-	if (!ncase) { print "no PVMTEST-MARK lines: was pvmtest.statsmsr set?" > "/dev/stderr"; exit 1 }
+	# The pairs, in mark order: an even value with its odd successor.
+	np = 0
+	for (v in label) if ((v in have) && ((v + 1) in have)) pairs[++np] = v + 0
+	for (i = 2; i <= np; i++)
+		for (j = i; j > 1 && pairs[j] < pairs[j-1]; j--) { t = pairs[j]; pairs[j] = pairs[j-1]; pairs[j-1] = t }
+	if (!np) { print "no complete mark pairs: was pvmtest.statsmsr set on a counting host?" > "/dev/stderr"; exit 1 }
 	printf "%-30s", "counter"
-	for (c = 1; c <= ncase; c++) {
-		n = casename[c]; sub(/^[^\/]*\//, "", n)
-		printf " %14s", substr(n, 1, 14)
+	for (c = 1; c <= np; c++) {
+		n = label[pairs[c]]; sub(/^perf\//, "", n)
+		printf " %16s", substr(n, length(n) > 16 ? length(n) - 15 : 1)
 	}
 	printf "\n"
 	for (k = 1; k <= nkeys; k++) {
 		key = order[k]
 		printf "%-30s", key
-		for (c = 1; c <= ncase; c++) {
-			b = 2 * c; a = 2 * c + 1
-			if (!(b in have) || !(a in have)) { printf " %14s", "-"; continue }
-			printf " %14d", val[a, key] - val[b, key]
+		for (c = 1; c <= np; c++) {
+			b = pairs[c]
+			printf " %16d", val[b + 1, key] - val[b, key]
 		}
 		printf "\n"
 	}

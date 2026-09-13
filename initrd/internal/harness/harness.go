@@ -58,6 +58,17 @@ type Case struct {
 type T struct {
 	name  string
 	notes []string
+	h     *Harness
+}
+
+// Mark writes a counter snapshot mark from inside a case, for a case that
+// wants its phases bracketed separately -- one pair per round, say.  Values
+// must stay clear of the per-case marks the harness writes itself (2n, 2n+1
+// for case n); pairs are v (before) and v+1 (after) with v even.
+func (t *T) Mark(v int, label string) {
+	if t.h != nil {
+		t.h.mark(v, label)
+	}
 }
 
 func (t *T) Logf(format string, a ...any) {
@@ -215,7 +226,7 @@ func (h *Harness) Run() {
 }
 
 func (h *Harness) runOne(n int, c Case) {
-	t := &T{name: c.Name}
+	t := &T{name: c.Name, h: h}
 
 	// A case that hangs must not take the whole run down with it: the
 	// outside timeout would kill the VM before any result was printed,

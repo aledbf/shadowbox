@@ -31,6 +31,7 @@ func Register(h *harness.Harness) {
 	registerParallel(h)
 	registerFaultScaling(h)
 	registerUnmapScaling(h)
+	registerFaultRounds(h)
 	registerSecurity(h)
 	registerCPUID(h)
 }
