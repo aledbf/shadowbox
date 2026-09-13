@@ -33,8 +33,13 @@ mapfile -t tests < <(grep -vE '^[[:space:]]*(#|$)' "$list")
 [ ${#tests[@]} -gt 0 ] || die "no tests listed in $list"
 
 log "building ${#tests[@]} selftests (this takes a few minutes the first time)"
+# Absolute targets.  The KVM selftests Makefile's link rules are written for
+# $(OUTPUT)/<test>, OUTPUT being the absolute directory; a relative
+# "x86/foo" misses them and falls through to make's builtin %: %.o, which
+# links without libkvm.  That only shows once a test's source changes -- until
+# then the binary is up to date and nothing is linked at all.
 make -C "$src" ARCH=x86 KHDR_INCLUDES="-isystem $hdr" -j"$JOBS" \
-	"${tests[@]}" > "$OUT/kvm-selftests-build.log" 2>&1 ||
+	"${tests[@]/#/$src/}" > "$OUT/kvm-selftests-build.log" 2>&1 ||
 	{ tail -20 "$OUT/kvm-selftests-build.log" >&2
 	  die "selftest build failed -- see out/kvm-selftests-build.log"; }
 
