@@ -21,6 +21,7 @@ func Register(h *harness.Harness) {
 	registerEntryPath(h)
 	registerPVM(h)
 	registerMM(h)
+	registerFaultRace(h)
 	registerSyscall(h)
 	registerSignal(h)
 	registerSched(h)
