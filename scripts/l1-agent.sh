@@ -87,6 +87,14 @@ MODE=run
 if [ "$SUITE" = profile ]; then
 	MODE=profile
 	SUITE=perf
+elif [ "$SUITE" = lock ]; then
+	# Lock contention for one case, from the lock:contention_begin/end
+	# tracepoints (no BPF in this host kernel).  Only contended
+	# acquisitions are recorded, so the case runs close to its normal
+	# speed -- unlike a lockdep/LOCK_STAT build, which would change the
+	# very scaling being asked about.
+	MODE=lock
+	SUITE=perf
 elif [ "$SUITE" = mmu ]; then
 	# Counts rather than samples: the shadow MMU tracepoints are far too
 	# hot to buffer, and what is wanted is how often each path is taken,
@@ -216,6 +224,7 @@ if [ "$SUITE" = perf ]; then
 	# One benchmark, so the profile is of the thing being asked about.
 	PROFILE_CASE="$(sed -n 's/.*pvmtest\.profile_case=\([^ ]*\).*/\1/p' /proc/cmdline)"
 	[ "$MODE" = profile ] && APPEND="$APPEND pvmtest.only=${PROFILE_CASE:-perf/syscall}"
+	[ "$MODE" = lock ] && APPEND="$APPEND pvmtest.only=${PROFILE_CASE:-perf/fault-scaling}"
 else
 	APPEND="$APPEND earlyprintk=serial,ttyS0,115200"
 fi
@@ -295,6 +304,12 @@ if [ "$MODE" = mmu ] && [ -x /mnt/payload/perf ]; then
 	PERF_EVENTS="$PERF_EVENTS,kvmmmu:kvm_mmu_get_page,kvmmmu:kvm_mmu_prepare_zap_page"
 	PERF_EVENTS="$PERF_EVENTS,kvmmmu:kvm_mmu_sync_page,kvmmmu:kvm_mmu_unsync_page,kvmmmu:fast_page_fault"
 	PERF_PREFIX="/mnt/payload/perf stat -a -o /tmp/mmu.txt -e $PERF_EVENTS --"
+elif [ "$MODE" = lock ] && [ -x /mnt/payload/perf ]; then
+	cd /tmp || exit 1
+	echo -1 > /proc/sys/kernel/perf_event_paranoid
+	echo 0 > /proc/sys/kernel/kptr_restrict
+	say "recording lock contention"
+	PERF_PREFIX="/mnt/payload/perf lock record -a -o /tmp/lock.data --"
 elif [ "$MODE" = profile ] && [ -x /mnt/payload/perf ]; then
 	cd /tmp || exit 1
 	echo 0 > /proc/sys/kernel/kptr_restrict
@@ -455,6 +470,19 @@ if [ "$MODE" = mmu ] && [ -s /tmp/mmu.txt ]; then
 	grep -E "kvmmmu:|kvm:|seconds" /tmp/mmu.txt | sed 's/^/L1: mmu: /'
 fi
 
+if [ "$MODE" = lock ] && [ -s /tmp/lock.data ]; then
+	say "--- lock contention by lock, wait_total ---"
+	/mnt/payload/perf lock contention -i /tmp/lock.data -q -k wait_total -E 12 \
+		-F contended,wait_total,wait_max,avg_wait 2>&1 | sed 's/^/L1: lock: /'
+	say "--- lock contention by caller, wait_total ---"
+	/mnt/payload/perf lock contention -i /tmp/lock.data -q -k wait_total -E 12 -l \
+		-F contended,wait_total,avg_wait 2>&1 | sed 's/^/L1: lockaddr: /'
+	say "--- contended in the shadow MMU page fault path ---"
+	/mnt/payload/perf lock contention -i /tmp/lock.data -q -k wait_total -E 8 \
+		-S kvm_mmu_page_fault -F contended,wait_total,wait_max,avg_wait 2>&1 |
+		sed 's/^/L1: lockpf: /'
+fi
+
 if [ "$MODE" = profile ] && [ -s /tmp/cycles.data ]; then
 	# No --vmlinux: L1 boots with KASLR, so the link-time addresses in the
 	# image do not match the running kernel and perf resolves nothing.
@@ -464,12 +492,19 @@ if [ "$MODE" = profile ] && [ -s /tmp/cycles.data ]; then
 		--percent-limit 0.4 -g none 2>/dev/null |
 		grep -vE "^#|^$" | head -28 | sed 's/^/L1: prof: /'
 
+	# Self time, which is where a lock's spinning shows: with children, a
+	# slow path is buried under every caller that reached it.
+	say "--- host cycles, self time ---"
+	/mnt/payload/perf report -i /tmp/cycles.data $VM --stdio --sort symbol \
+		--no-children --percent-limit 0.3 -g none 2>/dev/null |
+		grep -vE "^#|^$" | head -40 | sed 's/^/L1: self: /'
+
 	say "--- anything with 'switcher' in the name ---"
 	/mnt/payload/perf report -i /tmp/cycles.data $VM --stdio --sort symbol \
 		-g none 2>/dev/null | grep -i switcher | head -10 | sed 's/^/L1: prof: /'
 fi
 
-if [ -n "$PERF_PREFIX" ] && [ "$MODE" != profile ]; then
+if [ -n "$PERF_PREFIX" ] && [ "$MODE" != profile ] && [ "$MODE" != lock ]; then
 	# The name depends on whether perf recorded host, guest or both:
 	# get_filename_for_perf_kvm() picks between .host, .guest and .kvm.
 	for f in /tmp/perf.data.guest /tmp/perf.data.kvm /tmp/perf.data.host; do
