@@ -69,7 +69,7 @@ x86/smm_test			intel	pass
 # gets KVM_EXIT_DEBUG -- works fine.
 x86/kvm_pv_test			pvm	fail	guest expects an injected #GP; no PVCS published
 x86/kvm_pv_test			intel	pass
-x86/userspace_msr_exit_test	pvm	fail	same: msr_filter_allow waits for an injected #GP
+x86/userspace_msr_exit_test	pvm	fail	msr_filter_allow: userspace refuses WRMSR(XSS, 1), KVM injects #GP, and a selftest guest has no MSR_PVM_EVENT_ENTRY to deliver it to -- triple fault, SHUTDOWN. Not fixable from PVM: the guest is not a PVM guest
 x86/userspace_msr_exit_test	intel	pass
 
 # --- fail under PVM only with the default module parameters ------------
