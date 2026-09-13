@@ -27,6 +27,8 @@
 #   MATRIX_REPS       runs per point            (default 5)
 #   MATRIX_VENDORS    KVM vendors               (default "pvm intel")
 #   MATRIX_THRESHOLD  percent worse than the baseline that fails (default 15)
+#   MATRIX_REUSE_LOGS set: boot nothing, reduce the l1-perf-*-cpuN-rM logs
+#                     already in out/logs (after a sweep whose report died)
 #
 # A full default sweep is 4 x 2 x 5 = 40 boots of the perf suite.  Narrow
 # MATRIX_CPUS while iterating.
@@ -48,7 +50,16 @@ baseline="$TESTBED/baselines/$env_id.tsv"
 
 mkdir -p "$OUT/perf" "$OUT/logs"
 
-kernel_id=$(cd "$KSRC" && git describe --always --dirty 2>/dev/null || echo unknown)
+# MATRIX_KERNEL_ID: what the logs being reused were built from, which need
+# not be what the tree says now.
+kernel_id=${MATRIX_KERNEL_ID:-$(cd "$KSRC" && git describe --always --dirty 2>/dev/null || echo unknown)}
+
+# A counting build puts a memory increment on every fast path it counts, so
+# its timings are not the kernel's.  It is for "make exits", not for this.
+if grep -qx 'CONFIG_KVM_PVM_STATS=y' "$OUT/build-host/.config" 2>/dev/null &&
+   [ -z "${ALLOW_STATS_BUILD:-}" ]; then
+	die "the host kernel in out/ was built with CONFIG_KVM_PVM_STATS; rebuild without HOST_CONFIG_EXTRA (or set ALLOW_STATS_BUILD=1)"
+fi
 
 log "environment: $env_id"
 log "kernel under test: $kernel_id"
@@ -72,11 +83,25 @@ for n in $CPUS; do
 		for vendor in $VENDORS; do
 			tag="cpu$n-r$rep"
 			log "cpus=$n vendor=$vendor rep=$rep/$REPS"
-			if ! GUEST_CPUS="$n" LOG_SUFFIX="$tag" \
+			l="$OUT/logs/l1-perf-$vendor-$tag.log"
+			if [ -n "${MATRIX_REUSE_LOGS:-}" ]; then
+				[ -f "$l" ] || { warn "no log $l"; continue; }
+			elif ! GUEST_CPUS="$n" LOG_SUFFIX="$tag" \
 			     "$TESTBED/scripts/run-l1.sh" perf "$vendor" \
 			     > "$OUT/logs/matrix-$vendor-$tag.out" 2>&1; then
-				warn "cpus=$n vendor=$vendor rep=$rep failed; see out/logs/matrix-$vendor-$tag.out"
-				continue
+				# A run "fails" most often because L1's console
+				# printed into the middle of the guest's result
+				# line, which is then not recognised.  The metric
+				# lines carry their own terminator for exactly that
+				# reason, so what decides whether this run counts is
+				# whether any case failed and whether its metrics
+				# arrived whole -- not the result line.
+				if grep -aq 'not ok' "$l" 2>/dev/null ||
+				   ! grep -aq 'PVMTEST-METRIC: .*#END' "$l" 2>/dev/null; then
+					warn "cpus=$n vendor=$vendor rep=$rep failed; see out/logs/matrix-$vendor-$tag.out"
+					continue
+				fi
+				warn "cpus=$n vendor=$vendor rep=$rep: no clean result line, but no case failed; keeping its metrics"
 			fi
 			# The guest's metric lines carry the agent's machine tag
 			# when they came out of L1.  They also arrive over a
@@ -84,7 +109,7 @@ for n in $CPUS; do
 			# up glued to the unit field and makes it compare equal
 			# to nothing.
 			sed -n 's/^\(G\[[a-z0-9]*\]: \)\?PVMTEST-METRIC: //p' \
-				"$OUT/logs/l1-perf-$vendor-$tag.log" | tr -d '\r' |
+				"$l" | tr -d '\r' |
 				awk -v n="$n" -v v="$vendor" '$NF == "#END" {print $1"\t"n"\t"v"\t"$2"\t"$3}' \
 				>> "$raw"
 		done
