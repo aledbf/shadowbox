@@ -267,3 +267,63 @@ Kernel `f99cff29132f`: `msr_filter_allow` skips itself when `kvm_pvm` is
 loaded, saying why (a selftest guest registers no PVM event entry, so the #GP
 it asks KVM to inject can only be a triple fault).  VMX/SVM untouched; the
 other three cases still run.
+
+## Shadow-MMU experiment: re-read gPTEs through the walker's hva — neutral, not kept
+
+Kept on kernel branch `pvm-gpte-hva-experiment`.
+
+Observed bottleneck: mmu_lock contention in the shadow page fault, the largest
+scaling mechanism inside the hypervisor's control (47% of acquisitions
+contended at 8 vCPUs; 10% of host cycles in lock slow paths in parallel-fault).
+
+Evidence: under the lock, `FNAME(gpte_changed)()` re-reads the guest PTE of
+every level with `kvm_vcpu_read_guest_atomic()`, which resolves gfn ->
+memslot -> hva again although the walker already did under the same
+kvm->srcu read section; `kvm_vcpu_read_guest_atomic` 1.3% and
+`kvm_vcpu_gfn_to_memslot` 1.2% self time.
+
+Hypothesis: reading through `gw->ptep_user[]` shortens the hold, and a shorter
+hold shortens everyone's wait.
+
+Invariant impact: none (M1/M3/M4/M7 untouched; same bytes read, same retry on a
+faulting copy).
+
+Counters (counting build, 2 runs each, mmu_lock hold per acquisition):
+
+| case | before | after |
+|---|---:|---:|
+| fault-scaling, 8 vCPUs | 372 / 399 ns | 346 / 332 ns |
+| page-fault, 1 vCPU | 213 / 201 ns | 189 / 190 ns |
+| parallel-fault, 8 vCPUs | 399 / 380 ns | 334 / 354 ns |
+
+Benchmark, A/B/A, non-counting builds, whole perf suite, 5 reps, medians:
+
+| case | vCPUs | A1 | B | A2 |
+|---|---:|---:|---:|---:|
+| fault-scaling ns/page x cpu | 1 | 4,742 | 4,608 | 4,641 |
+| fault-scaling ns/page x cpu | 8 | 8,752 | 8,772 | 8,651 |
+| page-fault ns | 1 | 6,439 | 6,214 | 6,258 |
+| parallel-fault ns | 8 | 1,386 | 1,553 | 1,530 |
+| parallel-fork us | 8 | 645.3 | 629.0 | 624.8 |
+| unmap-scaling ns/page | 8 | 117.6 | 119.7 | 122.4 |
+
+Decision: revert.  The mechanism moved as predicted by ~30 ns a fault, which is
+below the noise of a ~1,100 ns page, and the change touches the shared shadow
+MMU for nothing measurable.
+
+## Where the scaling loss goes, in one place
+
+For first-touch faults at 8 vCPUs, against 1 (fault-scaling, ns per page times
+vCPUs, non-counting A1 run: 4,742 -> 8,752, +4,010 ns):
+
+- mmu_lock wait: ~400 ns per page (counting build);
+- the guest's direct map first touched through 4K shadow SPTEs: ~0.3 extra
+  shadow fault per page, gone with THP in L1 (-8% at 8 vCPUs, lock wait
+  halved) -- an environment property;
+- the rest is common to every vendor in this nesting: kvm-intel with ept=0
+  loses by the same factor and with EPT by more.  8 L1 vCPUs on a 6-core,
+  12-thread L0 P-core set share SMT siblings under load.
+
+The per-fault cost that remains, and that a TDP guest does not pay on memory it
+has used before, is structural: ~2.3 exits per freshly mapped page, 1.0 of them
+a #PF the hypervisor only reflects back to the guest.
