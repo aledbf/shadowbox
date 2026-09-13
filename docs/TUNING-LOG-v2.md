@@ -327,3 +327,43 @@ vCPUs, non-counting A1 run: 4,742 -> 8,752, +4,010 ns):
 The per-fault cost that remains, and that a TDP guest does not pay on memory it
 has used before, is structural: ~2.3 exits per freshly mapped page, 1.0 of them
 a #PF the hypervisor only reflects back to the guest.
+
+## Phase A1 — LA57: a real bug, fixed
+
+This CPU has no LA57, so L1 runs under QEMU TCG with `-cpu max,la57=on`
+(`L1_ACCEL=tcg L1_CPU=max,la57=on`, guest 1 vCPU, generous timeouts via
+`pvmtest.guest_timeout` / `pvmtest.test_timeout`).  Correctness only.
+
+First run, at the series tip before any change: the guest reached
+`Run /init as init process` and never ran init.  The trace alternated forever
+between a write fault at a user address (0x633740, error 0x2) and an
+instruction-fetch fault at the guest kernel RIP doing the write
+(0x7fff815f94a1, error 0x10) -- 10 and 10 in the buffer's tail -- until the
+10,000 s guest timeout.  Without host KPTI, so not the PVCS alias.
+
+Cause: the M4 SMEP emulation separates guest kernel and user by shadow page
+role and puts NX on the link where a user sp hangs beneath a kernel sp.  On a
+4-level host the guest's kernel (PML4 255) and user space (PML4 0) diverge at
+the root.  On a 5-level host both are PML5 index 0: the user walk linked a user
+sp there with NX, the kernel's fetch replaced it with a kernel sp, the user
+walk replaced that, and so on.
+
+Fix, kernel `075db25dbeff`: a user walk reuses a kernel sp already linked at an
+entry (user sps and SPTEs are allowed under kernel sps), so the halves diverge
+one level lower where the NX link still applies; and `make_spte()` gives a user
+leaf directly under a kernel sp NX itself, so M4 cannot be escaped through
+kernel sps all the way down.  Invariants document M4 updated.
+
+After the fix:
+
+| run | result |
+|---|---|
+| 4-level (KVM): default, security, pti default, host tests | all pass, sanitizer clean |
+| LA57 (TCG): default | 36/37 -- `time/monotonic` timed out after 30 s |
+| LA57 (TCG) + host KPTI (alias in use): default | 36/37 -- same case |
+| LA57 (TCG) + host KPTI: security | 20/22 -- `priv-insn/invd`, `priv-insn/wbinvd` executed at CPL3 |
+
+The three remaining failures look like the emulator rather than PVM: INVD and
+WBINVD at CPL3 are TCG's to fault on (the guest runs at CPL3 of an emulated
+L1), and time/monotonic is a 30-second loop.  Control: the same suites under
+TCG without LA57 -- see below.
