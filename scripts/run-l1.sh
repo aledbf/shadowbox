@@ -86,11 +86,19 @@ case "$suite" in
 full|perf|all) l1_timeout=2400 ;;
 *)             l1_timeout=$((BOOT_TIMEOUT * 3)) ;;
 esac
+# L1_ACCEL=tcg L1_CPU=max,la57=on: an L1 the hardware cannot give us -- a
+# 5-level paging host on a CPU without LA57 -- at the price of emulating
+# every instruction of it.  For correctness runs only; nothing measured on it
+# means anything.  L1_TIMEOUT stretches the bound to match.
+L1_ACCEL="${L1_ACCEL:-kvm}"
+L1_CPU="${L1_CPU:-host}"
+l1_timeout="${L1_TIMEOUT:-$l1_timeout}"
+[ "$L1_ACCEL" = kvm ] || PIN=""
 
 timeout --foreground -k 5 "$l1_timeout" \
 	$PIN "$QEMU" \
-	-machine q35,accel=kvm \
-	-cpu host \
+	-machine q35,accel="$L1_ACCEL" \
+	-cpu "$L1_CPU" \
 	-smp "$L1_CPUS" -m "$L1_MEM" \
 	-kernel "$OUT/images/host-bzImage" \
 	-drive file="$OUT/images/l1-rootfs.ext4",if=virtio,format=raw \

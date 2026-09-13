@@ -8,6 +8,7 @@
 package harness
 
 import (
+	"encoding/binary"
 	"fmt"
 	"os"
 	"runtime/debug"
@@ -83,6 +84,42 @@ type Harness struct {
 
 	pass, fail, skip int
 	failed           []string
+
+	markMSR int64 // 0: no marks
+	markDev *os.File
+}
+
+// MarkMSR makes the harness write an MSR just before and just after each
+// case: 2n before case n, 2n+1 after it.  A host built with
+// CONFIG_KVM_PVM_STATS answers a write to its debug MSR by printing every
+// counter it has, so the difference between the two prints is the case and
+// nothing else -- not the boot, not the other cases, and not a second run
+// subtracted from the first.  The name each mark stands for is printed as
+// PVMTEST-MARK.
+//
+// Through /dev/cpu/0/msr, so the write is an ordinary WRMSR the guest kernel
+// does on the harness's behalf.  A host without the MSR refuses the write,
+// which costs nothing but a line saying so.
+func (h *Harness) MarkMSR(msr int64) {
+	f, err := os.OpenFile("/dev/cpu/0/msr", os.O_WRONLY, 0)
+	if err != nil {
+		fmt.Printf("PVMINIT: no marks: %v\n", err)
+		return
+	}
+	h.markMSR, h.markDev = msr, f
+}
+
+func (h *Harness) mark(v int, name string) {
+	if h.markDev == nil {
+		return
+	}
+	fmt.Printf("PVMTEST-MARK: %d %s #END\n", v, name)
+	os.Stdout.Sync()
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(v))
+	if _, err := h.markDev.WriteAt(b, h.markMSR); err != nil {
+		fmt.Printf("PVMINIT: mark %d failed: %v\n", v, err)
+	}
 }
 
 func New(suite, tag string) *Harness {
@@ -160,7 +197,9 @@ func (h *Harness) Run() {
 
 	fmt.Printf("1..%d\n", len(run))
 	for i, c := range run {
+		h.mark(2*(i+1), c.Name+"/before")
 		h.runOne(i+1, c)
+		h.mark(2*(i+1)+1, c.Name+"/after")
 	}
 }
 

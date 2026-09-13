@@ -57,6 +57,12 @@ func main() {
 			harness.SetScale(n)
 		}
 	}
+	if msr := cmdline.Get("pvmtest.statsmsr", ""); msr != "" {
+		if n, err := strconv.ParseUint(msr, 0, 32); err == nil {
+			fmt.Printf("PVMINIT: marking each case with MSR %#x\n", n)
+			h.MarkMSR(int64(n))
+		}
+	}
 	if only := cmdline.Get("pvmtest.only", ""); only != "" {
 		fmt.Printf("PVMINIT: only cases matching %q\n", only)
 		h.Only(only)
