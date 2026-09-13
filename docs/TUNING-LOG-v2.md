@@ -435,7 +435,7 @@ not attempted: gated on the ICR fastpath proving the approach.
 |---|---:|---:|---:|---:|
 | ns/page x vCPUs | 5,713 | 7,249 | 8,115 | 10,406 |
 | PF retry/PF | 0 | 0 | 0 | 0 |
-| PF spurious/PF | 0.0003 | 0.0002 | 0.0001 | 0.0000 |
+| PF spurious/PF | 0.0003 | 0.0002 | 0.0001 | 0.0001 |
 | lock wait ns/PF-fixed | 0 | 19 | 76 | 300 |
 | lock hold ns/PF-fixed | 210 | 310 | 346 | 390 |
 | shadow alloc (cache miss)/page | 0.0027 | 0.0027 | 0.0023 | 0.0026 |
