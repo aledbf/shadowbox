@@ -74,6 +74,8 @@ fi
 say "/dev/kvm present"
 say "host PTI: $(cat /sys/devices/system/cpu/vulnerabilities/meltdown 2>/dev/null)"
 say "host pti flag: $(grep -o ' pti' /proc/cpuinfo | head -1 || echo 'not set')"
+say "host THP: $(cat /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || echo 'not built')"
+say "host paging: $(grep -o -m1 ' la57' /proc/cpuinfo >/dev/null && echo 5-level || echo 4-level)"
 
 # The payload share is already mounted: the stub in the image did it
 # before exec'ing this script, which is how this script got here at all.

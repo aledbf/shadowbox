@@ -27,7 +27,10 @@ extra_frag="$B/.extra.fragment"
 mkdir -p "$B"
 : > "$extra_frag"
 for opt in $extra; do
-	echo "$opt" >> "$extra_frag"
+	case "$opt" in
+	*=n) echo "# ${opt%=n} is not set" >> "$extra_frag" ;;
+	*)   echo "$opt" >> "$extra_frag" ;;
+	esac
 done
 
 log "configuring $role kernel in $B (KSRC=$KSRC)${extra:+ with $extra}"
@@ -51,7 +54,12 @@ for opt in $extra; do
 	want+=("$opt")
 done
 for opt in "${want[@]}"; do
-	grep -qx "$opt" "$B/.config" || die "$role: $opt did not survive olddefconfig"
+	# "CONFIG_FOO=n" is written back as "# CONFIG_FOO is not set".
+	case "$opt" in
+	*=n) line="# ${opt%=n} is not set" ;;
+	*)   line="$opt" ;;
+	esac
+	grep -qx "$line" "$B/.config" || die "$role: $opt did not survive olddefconfig"
 done
 
 log "building $role kernel with -j$JOBS"
