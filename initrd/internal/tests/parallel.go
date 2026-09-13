@@ -158,3 +158,160 @@ func registerParallel(h *harness.Harness) {
 		},
 	})
 }
+
+// fault-scaling: first-touch faults and nothing else, from every CPU at once.
+//
+// parallel-fault times mmap, the touch, a read-back pass and munmap together,
+// and munmap from several threads of one process is a TLB shootdown to every
+// CPU the process runs on -- IPIs and remote flushes that grow with the CPU
+// count by themselves.  Its curve cannot say whether first-touch faults scale.
+// This one maps every region first, lines the workers up on a barrier, times
+// only the loop that writes one byte to each fresh page, lines them up again,
+// and unmaps outside the clock.  One region per worker, so no two vCPUs fault
+// the same guest page table.
+//
+// ns_per_page is wall time over all pages: with perfect scaling it falls as
+// 1/cpus.  ns_per_page_per_cpu is the same thing multiplied back by the CPU
+// count, so perfect scaling reads as a flat line and the loss is the slope.
+func registerFaultScaling(h *harness.Harness) {
+	h.Add(harness.Case{
+		Name:    "perf/fault-scaling",
+		Suites:  []string{harness.Perf},
+		Timeout: 600 * 1e9,
+		Fn: func(t *harness.T) error {
+			n := runtime.NumCPU()
+			pages := harness.N(8192)
+			const rounds = 4
+			page := syscall.Getpagesize()
+
+			defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(n))
+
+			var total time.Duration
+			for r := 0; r < rounds; r++ {
+				regions := make([][]byte, n)
+				for i := range regions {
+					b, err := syscall.Mmap(-1, 0, pages*page,
+						syscall.PROT_READ|syscall.PROT_WRITE,
+						syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS)
+					if err != nil {
+						return err
+					}
+					regions[i] = b
+				}
+
+				var ready, done sync.WaitGroup
+				start := make(chan struct{})
+				errs := make([]error, n)
+				ready.Add(n)
+				done.Add(n)
+				for i := 0; i < n; i++ {
+					go func(i int) {
+						defer done.Done()
+						if err := pinWorker(i); err != nil {
+							errs[i] = err
+							ready.Done()
+							return
+						}
+						ready.Done()
+						<-start
+						b := regions[i]
+						for off := 0; off < len(b); off += page {
+							b[off] = 1
+						}
+					}(i)
+				}
+				ready.Wait()
+				t0 := time.Now()
+				close(start)
+				done.Wait()
+				total += time.Since(t0)
+
+				for _, b := range regions {
+					_ = syscall.Munmap(b)
+				}
+				for _, err := range errs {
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			all := float64(n * pages * rounds)
+			t.Logf("%d cpus x %d pages x %d rounds, first touch only", n, pages, rounds)
+			t.Metric("ns_per_page", float64(total.Nanoseconds())/all, "ns")
+			t.Metric("ns_per_page_per_cpu", float64(total.Nanoseconds())*float64(n)/all, "ns")
+			return nil
+		},
+	})
+}
+
+// unmap-scaling: the other half of parallel-fault.  Every worker maps and
+// touches its region outside the clock; then all of them unmap at once, and
+// only that is timed.  One process, so each munmap is a TLB shootdown to every
+// CPU the process runs on, and on a shadow-paging host it is also the
+// hypervisor zapping the shadow of every page -- the work fault-scaling leaves
+// out.
+func registerUnmapScaling(h *harness.Harness) {
+	h.Add(harness.Case{
+		Name:    "perf/unmap-scaling",
+		Suites:  []string{harness.Perf},
+		Timeout: 600 * 1e9,
+		Fn: func(t *harness.T) error {
+			n := runtime.NumCPU()
+			pages := harness.N(4096)
+			const rounds = 6
+			page := syscall.Getpagesize()
+
+			defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(n))
+
+			var total time.Duration
+			for r := 0; r < rounds; r++ {
+				var ready, done sync.WaitGroup
+				start := make(chan struct{})
+				errs := make([]error, n)
+				ready.Add(n)
+				done.Add(n)
+				for i := 0; i < n; i++ {
+					go func(i int) {
+						defer done.Done()
+						if err := pinWorker(i); err != nil {
+							errs[i] = err
+							ready.Done()
+							return
+						}
+						b, err := syscall.Mmap(-1, 0, pages*page,
+							syscall.PROT_READ|syscall.PROT_WRITE,
+							syscall.MAP_PRIVATE|syscall.MAP_ANONYMOUS)
+						if err != nil {
+							errs[i] = err
+							ready.Done()
+							return
+						}
+						for off := 0; off < len(b); off += page {
+							b[off] = 1
+						}
+						ready.Done()
+						<-start
+						errs[i] = syscall.Munmap(b)
+					}(i)
+				}
+				ready.Wait()
+				t0 := time.Now()
+				close(start)
+				done.Wait()
+				total += time.Since(t0)
+				for _, err := range errs {
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			all := float64(n * pages * rounds)
+			t.Logf("%d cpus x %d pages x %d rounds, munmap only", n, pages, rounds)
+			t.Metric("ns_per_page", float64(total.Nanoseconds())/all, "ns")
+			t.Metric("ns_per_page_per_cpu", float64(total.Nanoseconds())*float64(n)/all, "ns")
+			return nil
+		},
+	})
+}
