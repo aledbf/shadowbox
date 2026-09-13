@@ -85,7 +85,7 @@ END {
 	printf "metric\tcpus\tA\tB\tdelta\tnA\tnB\n"
 	for (k in keys) {
 		a = med(v[k, "A"]); b = med(v[k, "B"])
-		printf "%s\t%s\t%s\t%s\t%s\t%d\t%d\n", k, a, b,
+		printf "%s\t%s\t%s\t%s\t%d\t%d\n", k, a, b,
 			(a != "" && a + 0 != 0 && b != "") ? sprintf("%+.1f%%", 100 * (b - a) / a) : "",
 			split(v[k, "A"], x, " "), split(v[k, "B"], y, " ")
 	}
