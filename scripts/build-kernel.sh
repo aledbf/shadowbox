@@ -17,12 +17,26 @@ case "$role" in guest|host) ;; *) die "unknown role: $role" ;; esac
 B="$OUT/build-$role"
 mkdir -p "$B"
 
-log "configuring $role kernel in $B (KSRC=$KSRC)"
+# HOST_CONFIG_EXTRA / GUEST_CONFIG_EXTRA: options on top of the fragments,
+# space separated -- "CONFIG_KVM_PVM_STATS=y" for a counting build.  Every
+# build states them, and a build without them drops them again, because the
+# fragments are re-merged onto a fresh defconfig each time.
+extra_var="$(echo "$role" | tr a-z A-Z)_CONFIG_EXTRA"
+extra="${!extra_var:-}"
+extra_frag="$B/.extra.fragment"
+mkdir -p "$B"
+: > "$extra_frag"
+for opt in $extra; do
+	echo "$opt" >> "$extra_frag"
+done
+
+log "configuring $role kernel in $B (KSRC=$KSRC)${extra:+ with $extra}"
 make -C "$KSRC" O="$B" -s defconfig
 "$KSRC/scripts/kconfig/merge_config.sh" -m -O "$B" \
 	"$B/.config" \
 	"$TESTBED/configs/common.fragment" \
-	"$TESTBED/configs/$role.fragment" >/dev/null
+	"$TESTBED/configs/$role.fragment" \
+	"$extra_frag" >/dev/null
 make -C "$KSRC" O="$B" -s olddefconfig
 
 # merge_config.sh warns but does not fail when the kernel drops an option
@@ -33,6 +47,9 @@ case "$role" in
 guest) want+=(CONFIG_PVM_GUEST=y CONFIG_X86_PIE=y CONFIG_PVH=y) ;;
 host)  want+=(CONFIG_KVM_PVM=m CONFIG_KVM_INTEL=m) ;;
 esac
+for opt in $extra; do
+	want+=("$opt")
+done
 for opt in "${want[@]}"; do
 	grep -qx "$opt" "$B/.config" || die "$role: $opt did not survive olddefconfig"
 done
