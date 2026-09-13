@@ -47,7 +47,9 @@
 
 #include "harness.h"
 
+#include <sched.h>
 #include <signal.h>
+#include <sys/resource.h>
 
 /*
  * The host's own selectors.  The switcher compares PVCS::user_cs/user_ss
@@ -84,6 +86,7 @@
 #define O_USTACK	0xc000
 #define O_MAPPED_PAGES	13	/* everything above, mapped into the kernel */
 #define O_PML4_ALT	0xd000	/* a second address space: kernel half only */
+#define O_PVCS2		0xe000	/* where pvm/pvcs-alias-rebind moves the PVCS */
 
 /* Two pages with no memslot behind them: the guest's only output device. */
 #define MMIO_REPORT	0xd0000000UL	/* written from user mode */
@@ -101,6 +104,7 @@
 #define CTRL_SEL	0x0c	/* u32: user_cs | user_ss << 16 */
 #define CTRL_PGD1	0x10	/* u64: first CR3 the pgtbl variant loads */
 #define CTRL_PGD2	0x18	/* u64: second, and the one it returns to user on */
+#define CTRL_PVCS	0x20	/* u64: kernel VA of the PVCS supervisor mode writes */
 
 #define PTE_P		(1ULL << 0)
 #define PTE_RW		(1ULL << 1)
@@ -170,7 +174,6 @@ static void emit_movabs(struct asmbuf *a, int reg, uint64_t imm)
 static void build_smod_code(struct guest *g)
 {
 	struct asmbuf a = { g->mem + O_SCODE, g->kva + O_SCODE };
-	uint64_t pvcs = g->kva + O_PVCS;
 	uint64_t ctrl = g->kva + O_CTRL;
 
 	g->smod_entry = a.va;
@@ -181,8 +184,12 @@ static void build_smod_code(struct guest *g)
 	 * so this is also where the user stack gets established.
 	 */
 	emit_movabs(&a, GPR_RSP, UVA_STACK_TOP);
-	emit_movabs(&a, GPR_RDI, pvcs);
+	/*
+	 * The PVCS through the control page too, so that the VMM can move it
+	 * between two exits -- pvm/pvcs-alias-rebind does.
+	 */
 	emit_movabs(&a, GPR_RSI, ctrl);
+	EMIT(&a, 0x48, 0x8b, 0x7e, CTRL_PVCS);		/* mov CTRL_PVCS(%rsi),%rdi */
 
 	EMIT(&a, 0x48, 0x8b, 0x46, CTRL_RIP);		/* mov CTRL_RIP(%rsi),%rax */
 	EMIT(&a, 0x48, 0x89, 0x47, PVCS_RIP);		/* mov %rax,PVCS_RIP(%rdi) */
@@ -313,6 +320,9 @@ static void build_page_tables(struct guest *g)
 		put_pte(g, O_PT_K, PT_INDEX(g->kva, 1) + i,
 			(base + i * 0x1000) | PTE_P | PTE_RW);
 
+	/* The page pvm/pvcs-alias-rebind moves the PVCS to. */
+	put_pte(g, O_PT_K, PT_INDEX(g->kva + O_PVCS2, 1), (base + O_PVCS2) | PTE_P | PTE_RW);
+
 	/* kva + 0x10000: the MMIO page the event handlers write. */
 	put_pte(g, O_PT_K, PT_INDEX(g->kva + 0x10000, 1), MMIO_EVENT | PTE_P | PTE_RW);
 
@@ -422,6 +432,11 @@ static int guest_setup(struct vm *v, struct guest *g)
 	build_event_code(g, 0, MARK_USER_EVENT);
 	build_event_code(g, 512, MARK_SUPERVISOR_EVENT);
 	build_page_tables(g);
+	{
+		uint64_t pvcs_kva = g->kva + O_PVCS;
+
+		memcpy(g->mem + O_CTRL + CTRL_PVCS, &pvcs_kva, 8);
+	}
 
 	if (set_msr(v, MSR_PVM_VCPU_STRUCT, GUEST_PHYS_BASE + O_PVCS) <= 0)
 		return -1;
@@ -805,6 +820,274 @@ static void test_pgtbl_no_ds_cr3(struct vm *v, struct guest *g)
 		   PGTBL_ROUNDS);
 }
 
+/* --- the PVCS alias (host KPTI) and its lifecycle ----------------------- */
+
+/*
+ * Rounds of well-formed direct switches, every one of which must come back as
+ * a report with sane RFLAGS and none as an event.  Returns the vCPU exits the
+ * rounds took, or -1 having said why.
+ */
+static long run_clean_rounds(struct vm *v, int rounds, int seconds)
+{
+	struct outcome o;
+	uint64_t before, after;
+	char desc[256];
+
+	if (vcpu_stat(v, "exits", &before))
+		before = 0;
+	guest_run(v, &o, rounds, seconds);
+	if (vcpu_stat(v, "exits", &after))
+		after = 0;
+	describe(&o, desc, sizeof(desc));
+	if (o.reports < rounds || o.events) {
+		nok("%s", desc);
+		return -1;
+	}
+	if (!(o.last_rflags & 0x200)) {
+		nok("user mode got RFLAGS %#x: %s", o.last_rflags, desc);
+		return -1;
+	}
+	return (long)(after - before);
+}
+
+/*
+ * The PVCS moves to another page while the guest runs.
+ *
+ * The VMM copies it, points MSR_PVM_VCPU_STRUCT and the guest at the new page,
+ * and poisons the old one: a return RIP of an unmapped address and an ERETU
+ * target the guest never uses.  Every direct switch after that reads and
+ * writes the PVCS through tss_ex.pvcs -- the per-VM alias under host KPTI --
+ * so a translation still pointing at the old page sends user mode to the
+ * poison and the round comes back as an event, not a report.  That is the
+ * "no stale ASID keeps the old mapping" invariant, observed.
+ *
+ * The rounds are also counted: they have to stay direct switches, one exit
+ * each for the report, or the case would pass by never touching the alias.
+ */
+#define REBIND_ROUNDS 200
+
+static void test_pvcs_alias_rebind(struct vm *v, struct guest *g)
+{
+	uint64_t kva2 = g->kva + O_PVCS2, poison = 0x0000dead00000000ULL;
+	long exits;
+	int i;
+
+	current_case = "pvm/pvcs-alias-rebind";
+	if (warm_up(v, g, "rebind"))
+		return;
+
+	for (i = 0; i < 3; i++) {
+		uint64_t from = i % 2 ? O_PVCS2 : O_PVCS;
+		uint64_t to = i % 2 ? O_PVCS : O_PVCS2;
+		uint64_t to_kva = i % 2 ? g->kva + O_PVCS : kva2;
+
+		memcpy(g->mem + to, g->mem + from, 0x1000);
+		memcpy(g->mem + O_CTRL + CTRL_PVCS, &to_kva, 8);
+		if (set_msr(v, MSR_PVM_VCPU_STRUCT, GUEST_PHYS_BASE + to) <= 0) {
+			nok("moving the PVCS to %#lx was refused", GUEST_PHYS_BASE + to);
+			return;
+		}
+		memcpy(g->mem + from + PVCS_RIP, &poison, 8);
+
+		exits = run_clean_rounds(v, REBIND_ROUNDS, 20);
+		if (exits < 0)
+			return;
+		if (exits > 2 * REBIND_ROUNDS) {
+			nok("move %d: %ld exits over %d rounds -- not direct switches",
+			    i + 1, exits, REBIND_ROUNDS);
+			return;
+		}
+	}
+	ok("PVCS moved 3 times, %d clean direct-switch rounds after each", REBIND_ROUNDS);
+}
+
+/*
+ * Direct switches while the vCPU thread is moved across every CPU the process
+ * may run on, every millisecond.  The alias is per vCPU and needs no remapping
+ * when the vCPU changes CPU, but the ASID does change, and a PCID left over on
+ * the CPU it came back to is exactly the stale-translation case to rule out.
+ */
+struct migrator {
+	pid_t tid;
+	volatile int stop;
+	unsigned long moves;
+};
+
+static void *migrate_thread(void *arg)
+{
+	struct migrator *m = arg;
+	cpu_set_t allowed, one;
+	int cpu = 0;
+
+	if (sched_getaffinity(m->tid, sizeof(allowed), &allowed))
+		return NULL;
+	while (!m->stop) {
+		do {
+			cpu = (cpu + 1) % CPU_SETSIZE;
+		} while (!CPU_ISSET(cpu, &allowed));
+		CPU_ZERO(&one);
+		CPU_SET(cpu, &one);
+		if (!sched_setaffinity(m->tid, sizeof(one), &one))
+			m->moves++;
+		usleep(1000);
+	}
+	sched_setaffinity(m->tid, sizeof(allowed), &allowed);
+	return NULL;
+}
+
+#define MIGRATE_ROUNDS 20000
+
+static void test_pvcs_alias_migrate(struct vm *v, struct guest *g)
+{
+	struct migrator m = { .tid = gettid() };
+	pthread_t th;
+	long exits;
+
+	current_case = "pvm/pvcs-alias-migrate";
+	if (warm_up(v, g, "migrate"))
+		return;
+	if (pthread_create(&th, NULL, migrate_thread, &m)) {
+		nok("pthread_create: %s", strerror(errno));
+		return;
+	}
+	exits = run_clean_rounds(v, MIGRATE_ROUNDS, 120);
+	m.stop = 1;
+	pthread_join(th, NULL);
+	if (exits < 0)
+		return;
+	if (m.moves < 10) {
+		nok("only %lu CPU moves happened; nothing was tested", m.moves);
+		return;
+	}
+	ok("%d rounds, %ld exits, across %lu CPU moves", MIGRATE_ROUNDS, exits, m.moves);
+}
+
+/*
+ * The alias is PVM_PVCS_ALIAS_BASE + vcpu_idx pages.  Create every vCPU the VM
+ * may have, give each a PVCS page filled with a pattern, and run only the
+ * last one: its direct switches write through the highest alias there is.
+ * Every other vCPU's page must still hold its pattern afterwards, and one vCPU
+ * more than the maximum must be refused.
+ */
+#define DUMMY_PVCS_BASE	0x100000	/* offset into guest memory: 1MB up */
+#define PATTERN(i)	(0x5a00000000000000ULL | (uint64_t)(i))
+
+static void test_pvcs_alias_last_vcpu(void)
+{
+	struct vm v = {};
+	struct guest g = {};
+	int max, i, *fds, extra, bad = -1;
+	long exits;
+
+	current_case = "pvm/pvcs-alias-last-vcpu";
+	vm_setup(&v);
+	max = ioctl(v.kvm, KVM_CHECK_EXTENSION, KVM_CAP_MAX_VCPUS);
+	if (max <= 1 || DUMMY_PVCS_BASE + (uint64_t)max * 0x1000 > GUEST_MEM_SIZE) {
+		nok("KVM_CAP_MAX_VCPUS is %d, which this case cannot lay out", max);
+		vm_teardown(&v);
+		return;
+	}
+
+	{
+		struct rlimit rl;
+
+		getrlimit(RLIMIT_NOFILE, &rl);
+		rl.rlim_cur = rl.rlim_max;
+		setrlimit(RLIMIT_NOFILE, &rl);
+	}
+
+	fds = calloc(max, sizeof(*fds));
+	/* vCPU 0 is v.vcpu; 1 .. max-2 are the dummies. */
+	for (i = 1; i < max - 1; i++) {
+		fds[i] = ioctl(v.vm, KVM_CREATE_VCPU, i);
+		if (fds[i] < 0) {
+			nok("creating vCPU %d of %d: %s", i, max, strerror(errno));
+			goto out;
+		}
+	}
+	/* The last one becomes the vCPU that runs. */
+	fds[max - 1] = ioctl(v.vm, KVM_CREATE_VCPU, max - 1);
+	if (fds[max - 1] < 0) {
+		nok("creating the last vCPU (%d): %s", max - 1, strerror(errno));
+		goto out;
+	}
+	extra = ioctl(v.vm, KVM_CREATE_VCPU, max);
+	if (extra >= 0) {
+		nok("vCPU %d of a maximum of %d was created", max + 1, max);
+		close(extra);
+		goto out;
+	}
+
+	munmap(v.run, v.run_size);
+	fds[0] = v.vcpu;
+	v.vcpu = fds[max - 1];
+	v.run = mmap(NULL, v.run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v.vcpu, 0);
+	if (v.run == MAP_FAILED || ioctl(v.vcpu, KVM_SET_CPUID2, v.cpuid) < 0) {
+		nok("setting up the last vCPU: %s", strerror(errno));
+		v.vcpu = fds[0];
+		goto out;
+	}
+
+	if (guest_setup(&v, &g)) {
+		nok("could not build the guest on vCPU %d", max - 1);
+		goto swap_back;
+	}
+
+	for (i = 0; i < max - 1; i++) {
+		int fd = i ? fds[i] : fds[0];
+		struct vm dv = v;
+		uint64_t off = DUMMY_PVCS_BASE + (uint64_t)i * 0x1000, pat = PATTERN(i);
+		int j;
+
+		for (j = 0; j < 0x1000; j += 8)
+			memcpy((uint8_t *)v.mem + off + j, &pat, 8);
+		dv.vcpu = fd;
+		if (set_msr(&dv, MSR_PVM_VCPU_STRUCT, GUEST_PHYS_BASE + off) <= 0) {
+			nok("pinning a PVCS for vCPU %d was refused", i);
+			goto swap_back;
+		}
+	}
+
+	if (warm_up(&v, &g, "last-vcpu"))
+		goto swap_back;
+	exits = run_clean_rounds(&v, 200, 20);
+	if (exits < 0)
+		goto swap_back;
+
+	for (i = 0; i < max - 1 && bad < 0; i++) {
+		uint64_t off = DUMMY_PVCS_BASE + (uint64_t)i * 0x1000, pat = PATTERN(i), got;
+		int j;
+
+		for (j = 0; j < 0x1000; j += 8) {
+			memcpy(&got, (uint8_t *)v.mem + off + j, 8);
+			if (got != pat) {
+				bad = i;
+				break;
+			}
+		}
+	}
+	if (bad >= 0)
+		nok("vCPU %d's PVCS page was written while only vCPU %d ran", bad, max - 1);
+	else if (exits > 400)
+		nok("%ld exits over 200 rounds on vCPU %d -- not direct switches", exits, max - 1);
+	else
+		ok("%d vCPUs; vCPU %d ran 200 direct-switch rounds (%ld exits), "
+		   "the other %d PVCS pages untouched, vCPU %d refused",
+		   max, max - 1, exits, max - 1, max + 1);
+
+swap_back:
+	munmap(v.run, v.run_size);
+	v.run = mmap(NULL, v.run_size, PROT_READ | PROT_WRITE, MAP_SHARED, fds[0], 0);
+	v.vcpu = fds[0];
+	fds[max - 1] = fds[max - 1] >= 0 ? fds[max - 1] : -1;
+out:
+	for (i = 1; i < max; i++)
+		if (fds[i] > 0)
+			close(fds[i]);
+	free(fds);
+	vm_teardown(&v);
+}
+
 int main(void)
 {
 	struct vm v = {};
@@ -848,6 +1131,18 @@ int main(void)
 		test_pgtbl_no_ds_cr3(&v, &g);
 	g.pgtbl_variant = false;
 	vm_teardown(&v);
+
+	vm_setup(&v);
+	if (!guest_setup(&v, &g))
+		test_pvcs_alias_rebind(&v, &g);
+	vm_teardown(&v);
+
+	vm_setup(&v);
+	if (!guest_setup(&v, &g))
+		test_pvcs_alias_migrate(&v, &g);
+	vm_teardown(&v);
+
+	test_pvcs_alias_last_vcpu();
 
 	printf("1..%d\n", pass + fail);
 	printf("PVMHOSTTEST-RESULT: %s pass=%d fail=%d\n",
