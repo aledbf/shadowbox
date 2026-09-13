@@ -303,3 +303,110 @@ so it could not have justified them either.
 - A guest without PCIDE sends LOAD_PGTBL with the TLB bit set on every
   context switch (`~val >> 63`), which the switcher never serves.  Linux on
   x86-64 with PCID hardware has PCIDE; worth a check on hosts without PCID.
+
+# Final report
+
+## Commits (linux-aledbf, pvm-7.3-series, on c39e89576664)
+
+- `5b2a8abd32bd` x86/pvm: clear a stale NO_DS_CR3 when the switcher loads a paired root
+- `bab16a13fba6` KVM: x86/pvm: count the fast paths and the exits that fall back from them
+- `084e0eab7b17` KVM: x86/pvm: pair published roots without a second scan of prev_roots[]
+- `fb1ce3999e0a` KVM: x86/mmu: keep the guest's protection key out of make_spte()
+- `8eb2f4c62dcf` KVM: x86/pvm: keep a host task's LDT remap out of the root template
+- `5316c2d7ff7c` KVM: x86/pvm: direct switch on KPTI hosts through a per-VM PVCS alias
+- `238692dc3440` KVM: x86/pvm: supply the vendor operations KVM requires
+- `86c154bbb372` KVM: x86/pvm: raise #GP when PVM_HC_LOAD_PGTBL names a CR3 KVM refuses
+
+Each builds on its own (host config; the tip also with CONFIG_KVM_PVM_STATS),
+no new compiler or objtool warnings against c39e89576664.  Not pushed.
+
+## Correctness
+
+- PVM focused tests: regress, stage2 (37/37), host tests (17 + 4 incl. the new
+  pgtbl case), security on KVM and PVM, failclosed, and default/security/
+  profile/host tests again on a `pti=on` host: all pass.
+- KVM selftests: the 15-test subset as recorded, both vendors.
+- Warnings: insmod silent (was 10 WARNs).  Sanitizer clean on every log of
+  this pass; two `*-probe*` logs from before it carry Oopses and fail
+  `make sanitize` on their own.
+- Known failures: `x86/userspace_msr_exit_test` under PVM, explained (the
+  selftest guest has no PVM event entry for the #GP KVM injects).
+
+## Baseline and final matrix (host KPTI off)
+
+baseline `c39e89576664`, final `86c154bbb372`, 5 reps, medians, PVM / KVM:
+
+| benchmark | cpus | PVM before | PVM after | before ratio | after ratio |
+|---|---:|---:|---:|---:|---:|
+| syscall ns | 1 | 228.0 | 211.4 | 3.79x | 3.67x |
+| syscall ns | 2 | 216.1 | 218.8 | 3.75x | 3.77x |
+| syscall ns | 8 | 234.9 | 214.3 | 3.69x | 3.40x |
+| syscall ns | 16 | 212.5 | 232.8 | 3.54x | 3.83x |
+| context-switch ns | 1 | 8739 | 8497 | 1.53x | 1.53x |
+| context-switch ns | 2 | 8480 | 8752 | 1.96x | 2.05x |
+| page-fault ns | 2 | 6645 | 6651 | 0.76x | 0.74x |
+| fork-exec us | 2 | 2306 | 2324 | 4.31x | 3.96x |
+| fork-exec us | 16 | 3925 | 3921 | 2.90x | 2.98x |
+| parallel-fork us | 8 | 714.3 | 653.1 | 7.15x | 6.50x |
+| parallel-fault ns | 8 | 1474 | 1329 | 5.82x | 5.55x |
+| parallel-fault ns | 16 | 1583 | 1533 | 4.49x | 4.62x |
+
+Every point is within its spread and none is flagged.  Without host KPTI
+the kept changes are neutral, which is what they were expected to be.
+
+With host KPTI (2 vCPUs, 3 reps): syscall 2,792 -> 213 ns, context-switch
+51,180 -> 7,940 ns, fork-exec 3,271 -> 2,250 us, parallel-fork 1,533 ->
+947 us, parallel-fault 3,098 -> 2,389 ns.  See Phase 7.
+
+## Exit counts (whole perf suite, 2 vCPUs, counting builds, boot included)
+
+| exit reason | before (tip) | after, no KPTI | before, KPTI | after, KPTI |
+|---|---:|---:|---:|---:|
+| total | 783,764 | 758,981 | 6,139,099 | 728,500 |
+| PF | 506,853 | 502,890 | 500,044 | 500,273 |
+| HC_TLB_INVLPG | 46,883 | 47,329 | — | 46,622 |
+| HC_LOAD_PGTBL | 2,289 | 2,087 | 1,550 | 2,036 |
+| SMOD->UMOD fallback (ERETU) | 1,816 | 1,660 | 2,780,825 | 1,571 |
+| UMOD->SMOD fallback (SYSCALL) | 0 | 0 | 2,593,156 | 0 |
+| HC_WRMSR | 91,495 | 83,482 | | 68,037 |
+
+## Mechanism counters (after, no KPTI)
+
+- PGTBL served by the switcher: 104,228 paired + 471 unpaired against 2,087
+  exits (98% hit rate); 1,375 of the misses asked for a TLB flush.
+- PGTBL publications / VM entries: 758,981 / 758,981 (every entry, by design).
+- average range invalidation size: n/a (rejected; 1.13 pages when measured).
+- direct switch success: 2,572,005 to supervisor with 0 fallbacks,
+  2,756,734 to user with 1,660 fallbacks (99.94%).
+- WRPKRU / syscall: 2.07 (5,328,739 / 2,572,005).
+- PVCS dirty mark rate: one per exit, unchanged (Phase 9 not undertaken).
+
+## Conclusions
+
+### Proven wins
+- Direct switching under host KPTI: 13x on syscall, 6.4x on context switch,
+  8.4x fewer exits, KPTI-on now within noise of KPTI-off.
+- insmod WARNs gone, two of them live NULL static calls.
+
+### Neutral changes (kept for correctness or structure)
+- NO_DS_CR3 fix: +1 exit per unpaired->paired switch removed, too rare in the
+  suite to show on the matrix.
+- Fused prev_roots[] scan; pkey out of make_spte() (TDP MMU back to upstream).
+- #GP on a refused LOAD_PGTBL.
+
+### Reverted ideas
+- HC_TLB_INVLPG range batching: the targeted exits are guest boot.
+- PKRU equality short circuit: never true for Linux.
+- disallowed_va relocation: would narrow M7's coverage for a patched
+  `xor %eax,%eax`.
+
+### Remaining dominant cost
+- Shadow paging: 66% of exits are page faults, 2 per first-touched page.
+- HC_WRMSR (x2APIC ICR 57k, TSC_DEADLINE 26k) at 11%, the largest non-PF
+  reason.
+
+### Next recommended experiment
+- An exit fastpath for PVM's HC_WRMSR on ICR and TSC_DEADLINE, as KVM has for
+  VMX -- then the shadow MMU fault path itself, which the plan's decision tree
+  (Case B) points at.
+- Decide whether supervisor mode may run on the user PKRU (Phase 5).
