@@ -199,6 +199,41 @@ context switch and its return to user mode.  That is a change to the
 emulated architecture, with the pkey security cases to re-argue, for at most
 the ~13 ns measured.  Left for a decision rather than done.
 
+## Phase 6 — the shared shadow MMU
+
+Kernel `fb1ce3999e0a`: the guest's protection key is applied after
+`make_spte()` in the two shadow paths that have a guest PTE (`mmu_set_spte()`,
+`FNAME(sync_spte)()`), so `make_spte()` has its upstream signature and
+`tdp_mmu.c` is untouched by the series; `sync_spte()` no longer extracts the
+key when `shadow_pkey_mask` is zero.  stage2, security (pkey cases included),
+host tests and the KVM selftest subset (x86/state_test included) as recorded.
+
+`disallowed_va` stays.  It is `KVM_X86_OP_OPTIONAL_RET0` through
+`static_call`, which for a vendor that does not implement it is patched to an
+inline `xor %eax,%eax` at the call site: no indirect call for kvm-intel or
+kvm-amd.  Moving the check to PVM's #PF exit would cover the path that
+installs SPTEs but not the emulator's `gva_to_gpa` walks, which today refuse
+an upper-half address too.  Keeping M7's coverage beats removing a
+five-byte instruction.
+
+## Checkpoint matrix: phases 1 + 4 + 6
+
+Full matrix at `fb1ce3999e0a` against the Phase 0 baseline: everything within
+spread except two points flagged by the 15% rule, parallel-fault at 8 vCPUs
+(+32%, spread 88%, min 1093 below the baseline's min) and at 16 (+21%, 4 of 5
+runs above the baseline's max).  Phase 6 is on the fault path, so an A/B/A at
+16 vCPUs, 6 reps each, same guest, host with and without Phase 6:
+
+| host | parallel-fault median | min | max |
+|---|---:|---:|---:|
+| A1: with Phase 6 | 1706 | 1473 | 1943 |
+| B: Phase 6 reverted | 1657 | 1501 | 2217 |
+| A2: with Phase 6 | 1786 | 1361 | 1855 |
+
+Overlapping; not Phase 6.  The whole machine read slower than at the baseline
+(kvm-intel at 16 vCPUs 352.9 -> 374.9 ns too).  Neutral, as expected for
+these three.
+
 ## Open items found on the way
 
 - `HC_WRMSR` (ICR, TSC_DEADLINE): exit fastpath for PVM.
