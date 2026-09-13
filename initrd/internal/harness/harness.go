@@ -35,6 +35,14 @@ const (
 	// default run is how a broken boundary went unnoticed through three
 	// green rounds once already.
 	Security = "security"
+
+	// Scaling is the microbenchmarks that isolate one half of
+	// parallel-fault.  Not part of Perf: they run hundreds of megabytes of
+	// fresh faults, which leaves the next case in the suite -- fork-exec,
+	// page-fault -- measuring a guest in a different memory state, and a TDP
+	// guest with its EPT already populated.  Run them by name with
+	// pvmtest.only, which selects a case whatever suite it is in.
+	Scaling = "scaling"
 )
 
 type Case struct {
@@ -157,6 +165,9 @@ func (h *Harness) Add(c Case) {
 func (h *Harness) selected(c Case) bool {
 	if h.only != "" && !strings.Contains(c.Name, h.only) {
 		return false
+	}
+	if h.only != "" && c.Name == h.only {
+		return true
 	}
 	if h.suite == "all" {
 		return true

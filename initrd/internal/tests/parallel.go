@@ -176,7 +176,7 @@ func registerParallel(h *harness.Harness) {
 func registerFaultScaling(h *harness.Harness) {
 	h.Add(harness.Case{
 		Name:    "perf/fault-scaling",
-		Suites:  []string{harness.Perf},
+		Suites:  []string{harness.Scaling},
 		Timeout: 600 * 1e9,
 		Fn: func(t *harness.T) error {
 			n := runtime.NumCPU()
@@ -254,7 +254,7 @@ func registerFaultScaling(h *harness.Harness) {
 func registerUnmapScaling(h *harness.Harness) {
 	h.Add(harness.Case{
 		Name:    "perf/unmap-scaling",
-		Suites:  []string{harness.Perf},
+		Suites:  []string{harness.Scaling},
 		Timeout: 600 * 1e9,
 		Fn: func(t *harness.T) error {
 			n := runtime.NumCPU()
