@@ -109,6 +109,10 @@ elif [ "$SUITE" = hosttests ]; then
 fi
 
 if [ "$MODE" = hosttests ]; then
+	# pvmtest.test_timeout=<s>: per-program bound, for an L1 under TCG
+	# where a case that takes seconds on hardware takes many minutes.
+	T_TIMEOUT="$(sed -n 's/.*pvmtest\.test_timeout=\([0-9]*\).*/\1/p' /proc/cmdline)"
+	T_TIMEOUT="${T_TIMEOUT:-300}"
 	rc=0
 	found=0
 	for t in /mnt/payload/hosttests/*; do
@@ -117,7 +121,7 @@ if [ "$MODE" = hosttests ]; then
 		say "=== $(basename "$t") ==="
 		# Unbuffered through sed so a test that wedges still shows
 		# what it managed to print.
-		timeout -k 5 300 "$t" 2>&1 | sed "s/^/H: /"
+		timeout -k 5 "$T_TIMEOUT" "$t" 2>&1 | sed "s/^/H: /"
 		r=${PIPESTATUS[0]}
 		say "$(basename "$t") exited $r"
 		[ "$r" = 0 ] || rc=1
@@ -134,7 +138,7 @@ if [ "$MODE" = hosttests ]; then
 		[ -x "$t" ] || continue
 		found=1
 		name=$(basename "$t" | sed 's/__/\//')
-		timeout -k 5 300 "$t" > /tmp/st.log 2>&1
+		timeout -k 5 "$T_TIMEOUT" "$t" > /tmp/st.log 2>&1
 		r=$?
 		case $r in
 		0)   verdict=pass ;;
