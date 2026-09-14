@@ -4,7 +4,7 @@
 #
 # Known TCG artefacts, not PVM: INVD/WBINVD do not fault at CPL3 under TCG,
 # time/monotonic is a 30 s loop that times out, and security/pkey-allowed
-# fails intermittently (0 of 200 on KVM; see docs/TUNING-LOG-v5.md).
+# fails intermittently (0 of 200 on KVM; batteries/pkey-tcg.pvm).
 
 set cpus=1 allow-fail=time/monotonic,security/priv-insn/invd,security/priv-insn/wbinvd,security/pkey-allowed
 
