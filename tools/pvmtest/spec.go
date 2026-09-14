@@ -24,7 +24,7 @@ import (
 //	ab     <name> <key>=<value> ...  two variants (a.* / b.*), alternating
 //	kernel <name> git=<dir> rev=<rev> [host=timing|stats]
 //	                               a host+guest image set built from that
-//	                               revision (scripts/build-ref.sh), which
+//	                               revision (BuildRef), which
 //	                               items select with kernel=<name>
 //
 // Keys (a value runs to the next space; lists are comma separated):

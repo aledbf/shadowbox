@@ -1,0 +1,6 @@
+ Performance counter stats for system wide:
+
+      12,345      kvm:kvm_exit
+         678      kvmmmu:kvm_mmu_get_page
+
+       3.001 seconds time elapsed

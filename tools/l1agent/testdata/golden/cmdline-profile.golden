@@ -1,0 +1,8 @@
+vendor=pvm
+L1: loading pvm from /mnt/payload/kvm-pvm.ko 
+insmod=[insmod][/mnt/payload/kvm-pvm.ko]
+mode=profile suite=perf
+test_timeout=300
+L1: guest: 2 vcpus, 1G, timeout 1800s
+append=console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=perf pvmtest.tag=pvm-guest quiet loglevel=0 pvmtest.only=perf/context-switch pvmtest.expect=pvm
+qemu=[timeout][-k][5][1800][/mnt/payload/perf][record][-e][cycles:k][-F][4000][-g][-o][/tmp/cycles.data][--][qemu-system-x86_64][-machine][q35,accel=kvm][-cpu][host][-smp][2][-m][1G][-kernel][/mnt/payload/guest-vmlinux][-initrd][/mnt/payload/initrd.cpio.gz][-append][console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=perf pvmtest.tag=pvm-guest quiet loglevel=0 pvmtest.only=perf/context-switch pvmtest.expect=pvm][-display][none][-monitor][none][-serial][file:/tmp/guest.log][-no-reboot]

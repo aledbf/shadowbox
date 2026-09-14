@@ -1,0 +1,26 @@
+G[q35]: line1
+G[q35]: line2
+G[q35]: 
+G[q35]: partialL1: next
+S[x/y]: line1
+S[x/y]: line2
+S[x/y]: 
+S[x/y]: partialL1: next
+S[x/y]: 
+S[x/y]: partialL1: next
+L1: perf: line1
+L1: perf: line2
+L1: next
+10 y
+  10 x
+7 v
+ 007 w
+2.50 p
+2.5 o
+1 b
+1 a
+0.5 q
+abc
+-0 n
+
+-3 z

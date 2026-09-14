@@ -1,0 +1,8 @@
+vendor=intel
+L1: loading intel from /mnt/payload/kvm-intel.ko 
+insmod=[insmod][/mnt/payload/kvm-intel.ko]
+mode=run suite=smoke
+test_timeout=12
+L1: guest: 8 vcpus, 3G, timeout 120s
+append=console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=smoke pvmtest.tag=intel-guest earlyprintk=serial,ttyS0,115200
+qemu=[timeout][-k][5][120][qemu-system-x86_64][-machine][q35,accel=kvm][-cpu][host][-smp][8][-m][3G][-kernel][/mnt/payload/guest-vmlinux][-initrd][/mnt/payload/initrd.cpio.gz][-append][console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=smoke pvmtest.tag=intel-guest earlyprintk=serial,ttyS0,115200][-display][none][-monitor][none][-serial][file:/tmp/guest.log][-no-reboot]

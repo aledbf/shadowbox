@@ -1,0 +1,17 @@
+ qemu-system-x86-812 [000] d.... 999.000001: kvm_exit: vcpu 0 reason GP excp rip 0xffffffff81000010 info1 0x0 info2 0x0000000000000000 intr_info 0x0 error_code 0x0
+ qemu-system-x86-812 [000] d.... 999.000002: kvm_exit: vcpu 0 reason A|B rip 0xffffffff81000010 info1 0x0 info2 0x0000000000020004 intr_info 0x0 error_code 0x0
+ qemu-system-x86-812 [000] d.... 999.000003: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000010 info1 0x0 info2 0x0000000000000000 intr_info 0x0 error_code 0x0
+ qemu-system-x86-812 [000] d.... 999.000004: kvm_emulate_insn: f000:fff0: (real)
+ qemu-system-x86-812 [000] d.... 999.000005: kvm_emulate_insn: f000:fff0:ea 5b e0 00 f0 (real)
+ qemu-system-x86-812 [000] d.... 999.000006: kvm_emulate_insn: f000:fff0:66 66 (real)
+ qemu-system-x86-812 [000] d.... 999.000007: kvm_entry: vcpu 0 ÿþ high bytes
+ qemu-system-x86-812 [000] d.... 999.000008: kvm_exit: vcpu 0 kvm_exit: vcpu 1 reason HLT rip 0x1 info1 0x0 info2 0x2 intr_info 0x0 error_code 0x0
+ qemu-system-x86-812 [000] d.... 999.000009: kvm_exit: vcpu 0 reason  rip 0xffffffff81000010 info1 0x0 info2 0x0000000000020001 intr_info 0x0
+ qemu-system-x86-812 [000] d.... 999.000010: kvm_exit: vcpu 0 reason X rip 0xffffffff81000010 rip 0x2 info1 0x0 info2 0x3 info2 0x0000000000020009 intr_info 0x0
+ qemu-system-x86-812 [000] d.... 999.000011: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000010 info1 0x0 info2 0x2000A intr_info 0x0
+ qemu-system-x86-812 [000] d.... 999.000012: kvm_emulate_insn: 0:ffffffff81000000:40 41 4f (prot64)
+ qemu-system-x86-812 [000] d.... 999.000013: kvm_emulate_insn: 0:ffffffff81000000:4g 0f 30 (prot64)
+ qemu-system-x86-812 [000] d.... 999.000014: kvm_emulate_insn: 0:ffffffff81000000:0f (prot64)
+ qemu-system-x86-812 [000] d.... 999.000015: kvm_msr: msr_write 1b = 0x1 kvm_msr: msr_read 10 = 0x2
+ qemu-system-x86-812 [000] d.... 999.000016: kvm_msr: msr_write 1b= 0x1
+ qemu-system-x86-812 [000] d.... 999.000017: kvm_emulate_insn: 0:ffffffff81000000:0f 30 (prot64) kvm_emulate_insn: 1:2:ec (x)

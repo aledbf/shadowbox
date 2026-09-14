@@ -2,9 +2,11 @@
 # declines it with pvm_direct_pf=off.  Order alternates every repetition.
 # The Scaling cases boot on their own so they cannot perturb the perf suite.
 #
-#   make battery B=direct-pf
+#   KERNEL_GIT=<linux tree> make battery B=direct-pf
 
-set host=timing cpus=1,8 reps=5 a.guest=pvm_direct_pf=off b.guest=pvm_direct_pf=on
+kernel pvm git=${KERNEL_GIT} rev=${PVM_REV:-pvm-7.3-series}
+
+set kernel=pvm host=timing cpus=1,8 reps=5 a.guest=pvm_direct_pf=off b.guest=pvm_direct_pf=on
 
 ab perf           suite=perf
 ab fault-scaling  suite=perf cases=perf/fault-scaling

@@ -45,7 +45,7 @@ var (
 	// What a kernel says when something is wrong with it.  The guest's own
 	// negative tests make the guest print some of these on purpose, so
 	// only the L1 host's lines count here; configs/log-fail.txt and
-	// scripts/sanitize-log.sh remain the full scan.
+	// Sanitize (checks.go) remain the full scan.
 	complaintRe = regexp.MustCompile(`(WARNING: CPU|BUG: |Oops|general protection fault|Kernel panic|RIP: 0010|soft lockup|rcu_sched self-detected|refcount_t: )`)
 )
 

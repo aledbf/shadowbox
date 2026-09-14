@@ -50,7 +50,7 @@ func minmax(v []float64) (float64, float64) {
 }
 
 // WriteMatrix writes medians in the baselines/*.tsv format
-// (scripts/perf-matrix.sh, compare-perf.sh), so a matrix from here can be
+// (the format the old perf scripts wrote), so a matrix from here can be
 // a baseline and be compared against one.
 func WriteMatrix(w io.Writer, name, kernel string, reps int, statuses []*Status) {
 	type key struct {

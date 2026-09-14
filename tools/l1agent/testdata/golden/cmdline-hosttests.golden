@@ -1,0 +1,8 @@
+vendor=pvm
+L1: loading pvm from /mnt/payload/kvm-pvm.ko foo=1 bar=2
+insmod=[insmod][/mnt/payload/kvm-pvm.ko][foo=1][bar=2]
+mode=hosttests suite=hosttests
+test_timeout=900
+L1: guest: 2 vcpus, 1G, timeout 120s
+append=console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=hosttests pvmtest.tag=pvm-guest earlyprintk=serial,ttyS0,115200 pvmtest.expect=pvm
+qemu=[timeout][-k][5][120][qemu-system-x86_64][-machine][q35,accel=kvm][-cpu][host][-smp][2][-m][1G][-kernel][/mnt/payload/guest-vmlinux][-initrd][/mnt/payload/initrd.cpio.gz][-append][console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=hosttests pvmtest.tag=pvm-guest earlyprintk=serial,ttyS0,115200 pvmtest.expect=pvm][-display][none][-monitor][none][-serial][file:/tmp/guest.log][-no-reboot]

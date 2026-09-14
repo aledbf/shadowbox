@@ -13,7 +13,7 @@ before it can print.
 Only one step can need root, and only on some machines: building the L1
 root filesystem. `mmdebstrap` does it unprivileged where unprivileged
 user namespaces are allowed, but Ubuntu 24.04 and later restrict those by
-default. `scripts/build-rootfs.sh` picks between `unshare`, `fakechroot`
+default. `pvmtest build rootfs` picks between `unshare`, `fakechroot`
 and `root`, says which it picked, and chowns its output back to the
 invoking user when it ran under sudo. Everything else — both kernel
 builds, the initrd, and every boot — runs as you.
@@ -69,20 +69,31 @@ The runner refuses an item that needs another host build (`host=stats` or
 `timing`), keeps every log and a manifest (kernel and testbed revisions,
 the battery itself) in `out/results/<battery>-<time>/`, writes
 `summary.tsv` with a verdict per boot -- known failures listed, kernel log
-checked by `scripts/sanitize-log.sh`, selftests by `check-selftests.sh` --
+checked against `configs/log-fail.txt`/`log-allow.txt`, selftests against
+`configs/kvm-selftests-expect.txt` --
 and reduces `matrix` and `ab` items to medians, deltas and whether the two
 sides' ranges overlap.  `pvmtest list <battery>` prints the boots and their
-exact `run-l1.sh` command lines without running anything; `pvmtest stats
-<log>` gives per-case counter deltas of a `stats=on` boot.
+exact qemu command lines without running anything; `pvmtest stats <log>`
+gives per-case counter deltas of a `stats=on` boot.
+
+There is no shell script in the testbed.  `tools/pvmtest` builds (kernels
+from `KSRC`, the initrd, the rootfs, the agent, the host tests), boots (L1,
+or the guest under plain KVM here), checks logs and runs batteries; the L1
+agent (`tools/l1agent`) and the host tests (`tools/hosttests`) are Go too.
+Every Go binary is built with `CGO_ENABLED=0` and refused unless its ELF has
+no interpreter and no shared library dependencies.  What is still an
+external program is what cannot be anything else: the kernel's own make and
+`merge_config.sh`, qemu, mmdebstrap, mkfs.ext4, nm and objcopy.
 
 ## Layout
 
 ```
-configs/        kernel config fragments: common, guest, host
-scripts/        build and run; each does one thing and says what it did
-batteries/      what to run and what passing means, for tools/pvmtest
-tools/pvmtest/  the battery runner (Go, standard library only)
-initrd/         the guest's entire user space, in Go
+configs/        kernel config fragments, log patterns, selftest lists
+batteries/      what to run and what passing means
+tools/pvmtest/  build, boot, check, run batteries (the one command)
+tools/l1agent/  runs inside L1: loads the vendor, boots the guest, reports
+tools/hosttests/ the VMM-side tests, run inside L1 against /dev/kvm
+initrd/         the guest's entire user space
 out/            everything built (gitignored)
 out/logs/       one serial log per boot; this is the primary evidence
 ```
@@ -136,10 +147,11 @@ expects the usual address; stage 2 passes `pvmtest.expect=pvm` and
 `make hosttests` runs two things inside L1, against the loaded vendor
 module, with no guest of ours involved:
 
-- `hosttests/pvm_abi_test.c`, which drives `/dev/kvm` directly. The PVM
-  MSRs, the PVCS pinning and the memslot lifetime around it are reachable
-  only from the VMM; the guest-side suite runs at guest CPL3 and cannot
-  touch any of it.
+- `tools/hosttests` (`pvm_abi_test`, `pvm_switcher_test`), which drive
+  `/dev/kvm` directly with guests of a few hand-assembled bytes. The PVM
+  MSRs, the PVCS pinning and the memslot lifetime around it, the switcher's
+  direct paths and direct #PF delivery are reachable only from the VMM; the
+  guest-side suite runs at guest CPL3 and cannot touch any of it.
 - a curated subset of the kernel's own KVM selftests, listed in
   `configs/kvm-selftests.txt`, with the outcome of each recorded per
   vendor in `configs/kvm-selftests-expect.txt`. Any difference from the

@@ -1,0 +1,8 @@
+vendor=intel
+L1: loading intel from /mnt/payload/kvm-intel.ko 
+insmod=[insmod][/mnt/payload/kvm-intel.ko]
+mode=run suite=perf
+test_timeout=300
+L1: guest: 2 vcpus, 1G, timeout 1800s
+append=console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=perf pvmtest.tag=intel-guest quiet loglevel=0 
+qemu=[timeout][-k][5][1800][/mnt/payload/perf][kvm][stat][record][-a][--][qemu-system-x86_64][-machine][q35,accel=kvm][-cpu][host][-smp][2][-m][1G][-kernel][/mnt/payload/guest-vmlinux][-initrd][/mnt/payload/initrd.cpio.gz][-append][console=ttyS0,115200 panic=-1 oops=panic pvmtest.suite=perf pvmtest.tag=intel-guest quiet loglevel=0 ][-display][none][-monitor][none][-serial][file:/tmp/guest.log][-no-reboot]

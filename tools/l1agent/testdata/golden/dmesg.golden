@@ -1,0 +1,157 @@
+L1: dmesg: [    25.000175] kvm: loaded module 25
+L1: dmesg: [    26.000182] kvm: loaded module 26
+L1: dmesg: [    27.000189] kvm: loaded module 27
+L1: dmesg: [    28.000196] kvm: loaded module 28
+L1: dmesg: [    29.000203] kvm: loaded module 29
+L1: dmesg: [    30.000210] kvm: loaded module 30
+L1: dmesg: [    31.000217] kvm: loaded module 31
+L1: dmesg: [    32.000224] kvm: loaded module 32
+L1: dmesg: [    33.000231] kvm: loaded module 33
+L1: dmesg: [    34.000238] kvm: loaded module 34
+L1: dmesg: [    35.000245] kvm: loaded module 35
+L1: dmesg: [    36.000252] kvm: loaded module 36
+L1: dmesg: [    37.000259] kvm: loaded module 37
+L1: dmesg: [    38.000266] kvm: loaded module 38
+L1: dmesg: [    39.000273] kvm: loaded module 39
+L1: dmesg: [    40.000280] kvm: loaded module 40
+L1: dmesg: [    41.000287] kvm: loaded module 41
+L1: dmesg: [    42.000294] kvm: loaded module 42
+L1: dmesg: [    43.000301] kvm: loaded module 43
+L1: dmesg: [    44.000308] kvm: loaded module 44
+L1: dmesg: [    45.000315] kvm: loaded module 45
+L1: dmesg: [    46.000322] kvm: loaded module 46
+L1: dmesg: [    47.000329] kvm: loaded module 47
+L1: dmesg: [    48.000336] kvm: loaded module 48
+L1: dmesg: [    49.000343] kvm: loaded module 49
+L1: dmesg: [    50.000350] kvm: loaded module 50
+L1: dmesg: [    51.000357] kvm: loaded module 51
+L1: dmesg: [    52.000364] kvm: loaded module 52
+L1: dmesg: [    53.000371] kvm: loaded module 53
+L1: dmesg: [    54.000378] kvm: loaded module 54
+L1: dmesg: [    55.000385] kvm: loaded module 55
+L1: dmesg: [    56.000392] kvm: loaded module 56
+L1: dmesg: [    57.000399] kvm: loaded module 57
+L1: dmesg: [    58.000406] kvm: loaded module 58
+L1: dmesg: [    59.000413] kvm: loaded module 59
+L1: dmesg: [   61.000000] KVM_PVM: PVM: switcher at 0xffff
+L1: dmesg: [   61.100000] pvm: PVM: host ready
+L1: dmesg: [   62.000000] kvm_pvm: WARNING: injecting event in non-PVM mode
+L1: dmesg: [   62.100000] KVM: Non-PVM MODE again
+L1: dmesg: [   64.000000] Kvm lowercase check pvm
+L1: dmesg: [    45.000315] kvm: loaded module 45
+L1: dmesg: [    46.000322] kvm: loaded module 46
+L1: dmesg: [    47.000329] kvm: loaded module 47
+L1: dmesg: [    48.000336] kvm: loaded module 48
+L1: dmesg: [    49.000343] kvm: loaded module 49
+L1: dmesg: [    50.000350] kvm: loaded module 50
+L1: dmesg: [    51.000357] kvm: loaded module 51
+L1: dmesg: [    52.000364] kvm: loaded module 52
+L1: dmesg: [    53.000371] kvm: loaded module 53
+L1: dmesg: [    54.000378] kvm: loaded module 54
+L1: dmesg: [    55.000385] kvm: loaded module 55
+L1: dmesg: [    56.000392] kvm: loaded module 56
+L1: dmesg: [    57.000399] kvm: loaded module 57
+L1: dmesg: [    58.000406] kvm: loaded module 58
+L1: dmesg: [    59.000413] kvm: loaded module 59
+L1: dmesg: [   61.000000] KVM_PVM: PVM: switcher at 0xffff
+L1: dmesg: [   61.100000] pvm: PVM: host ready
+L1: dmesg: [   62.000000] kvm_pvm: WARNING: injecting event in non-PVM mode
+L1: dmesg: [   62.100000] KVM: Non-PVM MODE again
+L1: dmesg: [   64.000000] Kvm lowercase check pvm
+L1: dmesg: [    52.000364] kvm: loaded module 52
+L1: dmesg: [    53.000371] kvm: loaded module 53
+L1: dmesg: [    54.000378] kvm: loaded module 54
+L1: dmesg: [    55.000385] kvm: loaded module 55
+L1: dmesg: [    56.000392] kvm: loaded module 56
+L1: dmesg: [    57.000399] kvm: loaded module 57
+L1: dmesg: [    58.000406] kvm: loaded module 58
+L1: dmesg: [    59.000413] kvm: loaded module 59
+L1: dmesg: [   61.000000] KVM_PVM: PVM: switcher at 0xffff
+L1: dmesg: [   61.100000] pvm: PVM: host ready
+L1: dmesg: [   61.200000] random line
+L1: dmesg: [   62.000000] kvm_pvm: WARNING: injecting event in non-PVM mode
+L1: dmesg: [   62.100000] KVM: Non-PVM MODE again
+L1: dmesg: [   62.200000] qemu-system-x86[812]: segfault at 10 ip 00007f sp 00007f error 4 in qemu
+L1: dmesg: [   62.300000] traps: qemu[812] general protection fault ip:7f sp:7f error:0
+L1: dmesg: [   62.400000] qemu[812] trap int3 ip:7f sp:7f error:0
+L1: dmesg: [   62.500000] BUG: scheduling while atomic: qemu/812/0x00000002
+L1: dmesg: [   62.600000] frame 0
+L1: dmesg: [   62.600001] frame 1
+L1: dmesg: [   62.600002] frame 2
+L1: dmesg: [   62.600003] frame 3
+L1: dmesg: [   62.600004] frame 4
+L1: dmesg: 
+L1: dmesg: [   62.700000] BUG: unable to handle page fault for address: 0x10
+L1: dmesg: [   62.800000] trace 0
+L1: dmesg: [   62.800001] trace 1
+L1: dmesg: [   62.800002] trace 2
+L1: dmesg: [   62.800003] trace 3
+L1: dmesg: [   62.800004] trace 4
+L1: dmesg: [   62.800005] trace 5
+L1: dmesg: [   62.800006] trace 6
+L1: dmesg: [   62.800007] trace 7
+L1: dmesg: [   62.800008] trace 8
+L1: dmesg: [   62.800009] trace 9
+L1: dmesg: [   62.800010] trace 10
+L1: dmesg: [   62.800011] trace 11
+L1: dmesg: [   62.800012] trace 12
+L1: dmesg: [   62.800013] trace 13
+L1: dmesg: [   63.000000] general protection fault, maybe for address 0x1
+L1: dmesg: [   63.100000] more 0
+L1: dmesg: [   63.100001] more 1
+L1: dmesg: [   63.100002] more 2
+L1: dmesg: [   63.100003] more 3
+L1: dmesg: [   63.100004] more 4
+L1: dmesg: [   63.100005] more 5
+L1: dmesg: [   63.100006] more 6
+L1: dmesg: [   63.100007] more 7
+L1: dmesg: [   63.100008] more 8
+L1: dmesg: [   63.100009] more 9
+L1: dmesg: [   63.100010] more 10
+L1: dmesg: [   63.100011] more 11
+L1: dmesg: [   63.100012] more 12
+L1: dmesg: [   63.100013] more 13
+L1: dmesg: [   63.100014] more 14
+L1: dmesg: [   63.100015] more 15
+L1: dmesg: [   63.100016] more 16
+L1: dmesg: [   63.100017] more 17
+L1: dmesg: [   63.100018] more 18
+L1: dmesg: [   63.100019] more 19
+L1: dmesg: [   64.000000] Kvm lowercase check pvm
+L1: --- what the host said about the guest ---
+L1: pvm: [   61.000000] KVM_PVM: PVM: switcher at 0xffff
+L1: pvm: [   61.100000] pvm: PVM: host ready
+L1: pvm: [   62.000000] kvm_pvm: WARNING: injecting event in non-PVM mode
+L1: pvm: [   62.100000] KVM: Non-PVM MODE again
+L1: --- injection warnings ---
+L1: warn: [   62.000000] kvm_pvm: WARNING: injecting event in non-PVM mode
+L1: warn: [   62.100000] KVM: Non-PVM MODE again
+L1: --- did qemu fault, and where ---
+L1: sig: [   62.200000] qemu-system-x86[812]: segfault at 10 ip 00007f sp 00007f error 4 in qemu
+L1: sig: [   62.300000] traps: qemu[812] general protection fault ip:7f sp:7f error:0
+L1: --- kernel complaints from the guest run ---
+L1: bug: [   62.300000] traps: qemu[812] general protection fault ip:7f sp:7f error:0
+L1: bug: [   62.400000] qemu[812] trap int3 ip:7f sp:7f error:0
+L1: bug: [   62.500000] BUG: scheduling while atomic: qemu/812/0x00000002
+L1: bug: [   62.600000] frame 0
+L1: bug: [   62.600001] frame 1
+L1: bug: [   62.600002] frame 2
+L1: bug: [   62.600003] frame 3
+L1: bug: [   62.600004] frame 4
+L1: bug: [   62.700000] BUG: unable to handle page fault for address: 0x10
+L1: bug: [   62.800000] trace 0
+L1: bug: [   62.800001] trace 1
+L1: bug: [   62.800002] trace 2
+L1: bug: [   63.000000] general protection fault, maybe for address 0x1
+L1: bug: [   63.100000] more 0
+L1: bug: [   63.100001] more 1
+L1: bug: [   63.100002] more 2
+L1: bug: [   63.100003] more 3
+L1: bug: [   63.100004] more 4
+L1: bug: [   63.100005] more 5
+L1: bug: [   63.100006] more 6
+L1: bug: [   63.100007] more 7
+L1: bug: [   63.100008] more 8
+L1: bug: [   63.100009] more 9
+L1: bug: [   63.100010] more 10
+L1: bug: [   63.100011] more 11

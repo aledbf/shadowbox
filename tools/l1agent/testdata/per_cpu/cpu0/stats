@@ -1,0 +1,4 @@
+entries: 4096
+overrun: 12345
+commit overrun: 0
+bytes: 123

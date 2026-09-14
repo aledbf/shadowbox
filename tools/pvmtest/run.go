@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// A Boot is one run-l1.sh invocation.
+// A Boot is one boot of L1.
 type Boot struct {
 	Item    Item
 	Vendor  string
@@ -23,6 +23,7 @@ type Boot struct {
 }
 
 type Env struct {
+	Config  Config
 	Testbed string
 	Out     string
 	Results string
@@ -30,8 +31,6 @@ type Env struct {
 	summary *os.File
 	metrics *os.File
 }
-
-func (e *Env) runL1() string { return filepath.Join(e.Testbed, "scripts", "run-l1.sh") }
 
 // outFor is the out/ directory of an item's image set.
 func (e *Env) outFor(it Item) string {
@@ -112,81 +111,53 @@ func Boots(it Item) ([]Boot, error) {
 	return out, nil
 }
 
-// command builds the environment and arguments run-l1.sh takes.
-func (e *Env) command(b Boot) (*exec.Cmd, string, error) {
+// l1Opts is what BootL1 needs for one boot of an item.
+func (e *Env) l1Opts(b Boot) (L1Opts, error) {
 	it := b.Item
-	suite := it.Get("suite", "default")
-	var env []string
-	var guest []string
+	o := L1Opts{Suite: it.Get("suite", "default"), Vendor: b.Vendor}
 	if cases := it.List("cases"); cases != nil {
-		// "|" joins them: the harness selects exactly those names.
-		// A single name selects it in any suite by itself.
-		if len(cases) == 1 {
-			guest = append(guest, "pvmtest.only="+cases[0])
-		} else {
-			guest = append(guest, "pvmtest.only="+strings.Join(cases, "|"))
-		}
+		// "|" joins them: the harness selects exactly those names.  A
+		// single name selects it in any suite by itself.
+		o.Guest = append(o.Guest, "pvmtest.only="+strings.Join(cases, "|"))
 	}
 	if it.Get("stats", "") == "on" {
-		guest = append(guest, "pvmtest.statsmsr=0x4b564d2f")
+		o.Guest = append(o.Guest, "pvmtest.statsmsr=0x4b564d2f")
 	}
-	guest = append(guest, it.List("guest")...)
-	if len(guest) > 0 {
-		env = append(env, "GUEST_APPEND="+strings.Join(guest, ","))
-	}
+	o.Guest = append(o.Guest, it.List("guest")...)
 	if b.CPUs > 0 {
-		env = append(env, fmt.Sprintf("GUEST_CPUS=%d", b.CPUs))
+		o.CPUs = strconv.Itoa(b.CPUs)
 	}
-	if m := it.List("mod"); m != nil {
-		env = append(env, "MOD_ARGS="+strings.Join(m, ","))
-	}
-	var l1 []string
+	o.Mod = it.List("mod")
 	if it.Get("pti", "") == "on" {
-		l1 = append(l1, "pti=on")
+		o.L1Args = append(o.L1Args, "pti=on")
 	}
 	switch it.Get("l1", "kvm") {
 	case "kvm":
 	case "tcg", "tcg-la57":
-		cpu := "max"
-		if it.Get("l1", "") == "tcg-la57" {
-			cpu = "max,la57=on"
-		}
 		// Emulated: everything is an order of magnitude slower.
-		env = append(env, "L1_ACCEL=tcg", "L1_CPU="+cpu, "L1_TIMEOUT=20000")
-		l1 = append(l1, "pvmtest.guest_timeout=15000")
-	default:
-		return nil, "", fmt.Errorf("l1=%s: kvm, tcg or tcg-la57", it.Get("l1", ""))
-	}
-	l1 = append(l1, it.List("l1append")...)
-	if len(l1) > 0 {
-		env = append(env, "L1_APPEND="+strings.Join(l1, " "))
-	}
-	if p := it.Get("profile", ""); p != "" {
-		suite = "profile"
-		env = append(env, "PROFILE_CASE="+p)
-	}
-	suffix := "pvmtest-" + b.LogName
-	env = append(env, "LOG_SUFFIX="+suffix)
-	out := e.outFor(it)
-	if out != e.Out {
-		env = append(env, "OUT="+out)
-	}
-
-	timeout := it.Get("timeout", "")
-	if timeout == "" {
-		timeout = "1500"
-		if it.Get("l1", "kvm") != "kvm" {
-			timeout = "21000"
+		o.Accel, o.CPU = "tcg", "max"
+		if it.Get("l1", "") == "tcg-la57" {
+			o.CPU = "max,la57=on"
 		}
+		o.L1Args = append(o.L1Args, "pvmtest.guest_timeout=15000")
+		o.Timeout = 20000 * time.Second
+	default:
+		return o, fmt.Errorf("l1=%s: kvm, tcg or tcg-la57", it.Get("l1", ""))
 	}
-	args := []string{"--foreground", "-k", "10", timeout, e.runL1(), suite, b.Vendor}
-	cmd := exec.Command("timeout", args...)
-	cmd.Env = append(os.Environ(), env...)
-	cmd.Dir = e.Testbed
-	// run-l1.sh names its log l1-<suite>-<vendor>-<suffix>.log.
-	logSuite := suite
-	log := filepath.Join(out, "logs", fmt.Sprintf("l1-%s-%s-%s.log", logSuite, b.Vendor, suffix))
-	return cmd, log, nil
+	o.L1Args = append(o.L1Args, it.List("l1append")...)
+	if p := it.Get("profile", ""); p != "" {
+		o.Suite, o.Profile = "profile", p
+	}
+	if t := it.Get("timeout", ""); t != "" {
+		n, err := strconv.Atoi(t)
+		if err != nil {
+			return o, fmt.Errorf("timeout=%s: seconds", t)
+		}
+		o.Timeout = time.Duration(n) * time.Second
+	}
+	o.QMP = os.Getenv("L1_QMP")
+	o.Debug = os.Getenv("L1_QEMU_DEBUG")
+	return o, nil
 }
 
 // Status of one boot against what the item expects.
@@ -199,7 +170,7 @@ type Status struct {
 }
 
 // judge decides a boot from its log.  checks are the verdicts of the
-// testbed's own log checkers (sanitize-log.sh, check-selftests.sh), empty
+// testbed's log checkers (Sanitize, CheckSelftests), empty
 // when they passed.
 func judge(b Boot, o *Outcome, logText string, exitCode int, checks []string) (string, string) {
 	it := b.Item
@@ -248,60 +219,49 @@ func judge(b Boot, o *Outcome, logText string, exitCode int, checks []string) (s
 	return "ok", why
 }
 
-// logChecks runs the testbed's own checkers on a finished log.
+// logChecks runs the testbed's log checkers on a finished log.
 func (e *Env) logChecks(b Boot, log string) []string {
-	var fails []string
-	run := func(what string, args ...string) {
-		cmd := exec.Command(filepath.Join(e.Testbed, "scripts", args[0]), args[1:]...)
-		cmd.Dir = e.Testbed
-		if out, err := cmd.CombinedOutput(); err != nil {
-			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-			fails = append(fails, what+": "+lines[len(lines)-1])
-		}
+	if !fileExists(log) {
+		return nil
 	}
-	run("sanitize-log.sh", "sanitize-log.sh", "-q", log)
+	var fails []string
+	if err := Sanitize(e.Config, []string{log}, true); err != nil {
+		fails = append(fails, "sanitize: "+err.Error())
+	}
 	if b.Item.Get("suite", "") == "hosttests" {
-		run("check-selftests.sh", "check-selftests.sh", log, b.Vendor)
+		if err := CheckSelftests(e.Config, log, b.Vendor); err != nil {
+			fails = append(fails, "selftests: "+err.Error())
+		}
 	}
 	return fails
 }
 
 func (e *Env) runBoot(b Boot, unpinned bool) (*Status, error) {
-	cmd, log, err := e.command(b)
+	o, err := e.l1Opts(b)
 	if err != nil {
 		return nil, err
 	}
-	if unpinned {
-		// Pinning is for measurements: several L1s pinned to the same
-		// P-cores would only fight over them.
-		cmd.Env = append(cmd.Env, "PIN_CPUS=none")
-	}
-	dest := filepath.Join(e.Results, "logs", b.LogName+".log")
+	out := e.outFor(b.Item)
 	if e.DryRun {
-		fmt.Printf("  %s\n    %s %s\n", b.LogName, strings.Join(cmd.Env[len(os.Environ()):], " "),
-			strings.Join(cmd.Args, " "))
+		argv := L1Argv(e.Config.With(out, ""), o, "<payload>")
+		fmt.Printf("  %s\n    suite=%s vendor=%s out=%s\n    %s\n", b.LogName, o.Suite, o.Vendor, out, strings.Join(argv, " "))
 		return &Status{Boot: b, Outcome: &Outcome{}, Verdict: "dry"}, nil
 	}
+	// Pinning is for measurements: several L1s pinned to the same P-cores
+	// would only fight over them.
+	o.Pin = !unpinned
+	o.Log = filepath.Join(e.Results, "logs", b.LogName+".log")
 	start := time.Now()
-	out, _ := os.Create(filepath.Join(e.Results, "logs", b.LogName+".run-l1.out"))
-	cmd.Stdout, cmd.Stderr = out, out
-	runErr := cmd.Run()
-	out.Close()
-	code := 0
-	if ee, ok := runErr.(*exec.ExitError); ok {
-		code = ee.ExitCode()
+	_, bootErr := BootL1(e.Config.With(out, ""), o)
+	raw, _ := os.ReadFile(o.Log)
+	oc := ParseLog(strings.NewReader(string(raw)))
+	verdict, why := judge(b, oc, string(raw), 0, e.logChecks(b, o.Log))
+	if bootErr != nil && verdict == "ok" {
+		verdict, why = "FAIL", bootErr.Error()
+	} else if bootErr != nil {
+		why += " (" + bootErr.Error() + ")"
 	}
-	if err := os.Rename(log, dest); err != nil {
-		return &Status{Boot: b, Outcome: &Outcome{}, Verdict: "FAIL",
-			Why: fmt.Sprintf("no log at %s (run-l1 exit %d)", log, code)}, nil
-	}
-	raw, err := os.ReadFile(dest)
-	if err != nil {
-		return nil, err
-	}
-	o := ParseLog(strings.NewReader(string(raw)))
-	verdict, why := judge(b, o, string(raw), code, e.logChecks(b, dest))
-	return &Status{Boot: b, Outcome: o, Verdict: verdict, Why: why,
+	return &Status{Boot: b, Outcome: oc, Verdict: verdict, Why: why,
 		Seconds: time.Since(start).Seconds()}, nil
 }
 

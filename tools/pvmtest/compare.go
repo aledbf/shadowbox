@@ -12,7 +12,7 @@ import (
 )
 
 // envID names a machine's baseline: the kernel it hosts on and its CPU model,
-// the way scripts/perf-matrix.sh has always named them -- not the kernel
+// the way the testbed has always named them -- not the kernel
 // under test, which is the thing being measured.
 func envID() string {
 	rel, _ := os.ReadFile("/proc/sys/kernel/osrelease")

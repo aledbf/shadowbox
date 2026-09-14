@@ -1,7 +1,8 @@
 // pvmtest runs pvm-testbed batteries: every boot the testbed does, described
 // in a file under batteries/ instead of a shell loop written for the occasion.
 //
-//	pvmtest run   [-n] [-only item,...] <battery>   run it; exit 1 on any unexpected result
+//	pvmtest deps | build ... | boot ... | regress | sanitize | selftests | exits | resolve-exits
+//	pvmtest run   [-n] [-j N] [-only item,...] <battery>   run it; exit 1 on any unexpected result
 //	pvmtest list  <battery>                         the boots it would do
 //	pvmtest stats [-filter re] <log>                per-case counter deltas of a log
 //	pvmtest check <log> [allow-fail,...]            judge one log as a run item would
@@ -17,7 +18,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -28,6 +28,13 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		usage()
+	}
+	if handled, err := runSub(os.Args[1], os.Args[2:]); handled {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "\033[1;31mfail\033[0m %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	switch os.Args[1] {
 	case "run":
@@ -57,7 +64,18 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  pvmtest run   [-n] [-only item,...] <battery>
+  pvmtest deps
+  pvmtest build guest|host [-stats] [-extra CONFIG_X=y] | initrd | rootfs | hosttests | agent | selftests | all
+  pvmtest build ref <name> <git-dir> <rev> [timing|stats]
+  pvmtest boot  l1 [-suite s] [-vendor v] [-cpus n] [-guest a,b] [-mod a,b] [-l1 kvm|tcg|tcg-la57] [-pti] [-kernel name] ...
+  pvmtest boot  guest [-boot pvh|bzimage] [-suite s] [-name tag]
+  pvmtest boot  host-selftest
+  pvmtest regress
+  pvmtest sanitize [-q] [log...]
+  pvmtest selftests <log> <vendor>
+  pvmtest exits <case> [vendor...]
+  pvmtest resolve-exits <log> [vmlinux]
+  pvmtest run   [-n] [-j N] [-only item,...] <battery>
   pvmtest list  <battery>
   pvmtest stats [-filter regexp] <log>
   pvmtest check <log> [allow-fail,...]
@@ -96,7 +114,8 @@ func cmdRun(args []string, listOnly bool) int {
 		return 2
 	}
 	tb := testbedDir()
-	env := &Env{Testbed: tb, Out: filepath.Join(tb, "out"), DryRun: *dry || listOnly}
+	cfg := LoadConfig()
+	env := &Env{Config: cfg, Testbed: tb, Out: cfg.Out, DryRun: *dry || listOnly}
 	// The kernel under test lives outside the testbed.  KSRC names it for
 	// the image set in out/; kernel directives name their own.
 	ksrc := os.Getenv("KSRC")
@@ -116,27 +135,31 @@ func cmdRun(args []string, listOnly bool) int {
 
 	// Image sets first: they take the longest and every item needs its own.
 	for _, k := range bat.Kernels {
-		args := []string{k.Name, k.Git, k.Rev, k.Host}
 		if env.DryRun {
-			fmt.Printf("kernel %s: scripts/build-ref.sh %s\n", k.Name, strings.Join(args, " "))
+			fmt.Printf("kernel %s: %s at %s, %s host\n", k.Name, k.Git, k.Rev, k.Host)
 			continue
 		}
-		cmd := exec.Command(filepath.Join(tb, "scripts", "build-ref.sh"), args...)
-		cmd.Dir = tb
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := BuildRef(cfg, k.Name, k.Git, k.Rev, k.Host); err != nil {
 			fmt.Fprintf(os.Stderr, "%s:%d: building kernel %s: %v\n", bat.Path, k.Line, k.Name, err)
 			return 2
 		}
 	}
 
 	host := env.hostVariant(env.Out)
+	var checked []Item
 	for _, it := range items {
+		if it.Kind == "ab" {
+			checked = append(checked, it.Variant("a"), it.Variant("b"))
+		} else {
+			checked = append(checked, it)
+		}
+	}
+	for _, it := range checked {
 		host := env.hostVariant(env.outFor(it))
 		if need := it.Get("host", ""); need != "" && need != host && !env.DryRun {
 			fmt.Fprintf(os.Stderr, "%s:%d: %s needs a %s host build, out/build-host is %s:\n"+
-				"  scripts/build-kernel.sh host%s\n", bat.Path, it.Line, it.Name, need, host,
-				map[string]string{"stats": " with HOST_CONFIG_EXTRA=CONFIG_KVM_PVM_STATS=y", "timing": ""}[need])
+				"  pvmtest build host%s\n", bat.Path, it.Line, it.Name, need, host,
+				map[string]string{"stats": " -stats", "timing": ""}[need])
 			return 2
 		}
 		if k := it.Get("kernel", ""); k != "" && !env.DryRun {

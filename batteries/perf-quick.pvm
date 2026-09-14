@@ -1,0 +1,4 @@
+# One run of the perf suite under PVM and under kvm-intel, side by side: the
+# quick look (make perf).  Medians of one are not a measurement -- use
+# perf-matrix or kvm-vs-pvm for anything that is going to be believed.
+matrix perf suite=perf vendor=pvm,intel reps=1 baseline=none

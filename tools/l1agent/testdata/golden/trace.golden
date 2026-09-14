@@ -1,0 +1,181 @@
+L1: --- exits by reason ---
+L1: exit:       71  SYSCALL
+L1: exit:       56  EPT_VIOLATION
+L1: exit:       53  IO_INSTRUCTION
+L1: exit:       49  MSR_WRITE
+L1: exit:       44  HLT
+L1: exit:       43  HC_TLB_FLUSH
+L1: exit:       41  HC_RDMSR
+L1: exit:       41  HC_LOAD_TLS
+L1: exit:       39  HYPERCALL(1f)
+L1: exit:       38  HYPERCALL(20010)
+L1: exit:       37  HYPERCALL()
+L1: exit:       37  HC_LOAD_GS
+L1: exit:       36  HC_IRQ_HALT
+L1: exit:       34  HC_TLB_FLUSH_CURRENT
+L1: exit:       33  HC_WRMSR
+L1: exit:       32  HC_IRQ_WIN
+L1: exit:       31  MSR_READ
+L1: exit:       31  HC_LOAD_PGTBL
+L1: --- exits by reason and guest rip ---
+L1: exitrip:        9  IO_INSTRUCTION         0xffffffff81000020
+L1: exitrip:        8  SYSCALL                0xffffffff81000010
+L1: exitrip:        8  EPT_VIOLATION          0xffffffff81000000
+L1: exitrip:        7  SYSCALL                0xffffffff81000020
+L1: exitrip:        7  SYSCALL                0xffffffff81000000
+L1: exitrip:        7  MSR_WRITE              0xffffffff81000010
+L1: exitrip:        7  HC_WRMSR               0xffffffff81000000
+L1: exitrip:        6  IO_INSTRUCTION         0xffffffff81000000
+L1: exitrip:        6  HYPERCALL(20010)       0xffffffff81000000
+L1: exitrip:        6  HYPERCALL()            0xffffffff81000010
+L1: exitrip:        6  HLT                    0xffffffff81000030
+L1: exitrip:        6  HLT                    0xffffffff81000000
+L1: exitrip:        6  HC_TLB_FLUSH           0xffffffff81000020
+L1: exitrip:        6  HC_RDMSR               0xffffffff81000060
+L1: exitrip:        6  HC_IRQ_HALT            0xffffffff81000000
+L1: exitrip:        5  MSR_WRITE              0xffffffff81000060
+L1: exitrip:        5  MSR_WRITE              0xffffffff81000020
+L1: exitrip:        5  IO_INSTRUCTION         0xffffffff81000010
+L1: exitrip:        5  HYPERCALL(1f)          0xffffffff81000000
+L1: exitrip:        5  HC_TLB_INVLPG          0xffffffff81000020
+L1: exitrip:        5  HC_TLB_FLUSH           0xffffffff81000080
+L1: exitrip:        5  HC_LOAD_TLS            0xffffffff81000020
+L1: exitrip:        5  HC_LOAD_TLS            0xffffffff81000000
+L1: exitrip:        5  HC_IRQ_WIN             0xffffffff81000020
+L1: exitrip:        5  EPT_VIOLATION          0xffffffff81000040
+L1: --- emulated instructions: 601 traced ---
+L1: insn:      80 0f 30 
+L1: insn:      44 48 0f 22
+L1: insn:      41 0f 32 
+L1: insn:      37 66 0f 20
+L1: insn:      35 f3 48 ab
+L1: insn:      33 ec  
+L1: insn:      33 6c  
+L1: insn:      27 e6 80 
+L1: insn:      25 ee  
+L1: insn:      24 e4 60 
+L1: insn:      21 0f a2 
+L1: insn:      19 6f  
+L1: insn:      18 fa  
+L1: insn:      18 0f 01 d9
+L1: insn:      16 fb  
+L1: insn:      14 0f 31 
+L1: insn:      13 f4  
+L1: insn:      12 0f 06 
+L1: insn:      10 0f 23 c0
+L1: insn:       9 0f 07 
+L1: --- privileged instructions only ---
+L1: priv:       87  wrmsr
+L1: priv:       44  mov %reg,%crN
+L1: priv:       41  rdmsr
+L1: priv:       39  in dx
+L1: priv:       37  mov %crN,%reg
+L1: priv:       36  ins
+L1: priv:       28  in imm
+L1: priv:       27  out imm
+L1: priv:       26  out dx
+L1: priv:       21  cpuid
+L1: priv:       20  outs
+L1: priv:       18  lgdt/lidt/etc
+L1: priv:       18  cli
+L1: priv:       16  sti
+L1: priv:       14  rdtsc
+L1: priv:       13  hlt
+L1: priv:       12  clts
+L1: priv:       10  mov %reg,%drN
+L1: priv:        9  sysret
+L1: priv:        9  lldt/ltr/etc
+L1: priv:        8  wbinvd
+L1: priv:        7  syscall
+L1: priv:        4  mov %drN,%reg
+L1: --- MSR accesses by register ---
+L1: msr:      48 read 1b
+L1: msr:      35 write 1b
+L1: msr:      27 write 10
+L1: msr:      27 read 10
+L1: msr:      20 write c0000080
+L1: msr:      15 read c0000080
+L1: msr:      12 write c0000101
+L1: msr:      12 write c0000100
+L1: msr:      12 read c0000101
+L1: msr:      10 read c0000100
+L1: msr:      10 read 6e0
+L1: msr:       9 read c0000102
+L1: --- dropped by the trace buffer ---
+L1: insn: cpu0 overrun: 12345
+L1: insn: cpu0 commit overrun: 0
+L1: --- shadow MMU event counts ---
+L1: mmu:       12,345      kvm:kvm_exit
+L1: mmu:          678      kvmmmu:kvm_mmu_get_page
+L1: mmu:        3.001 seconds time elapsed
+L1: --- last 70 trace lines, teardown and unmaps removed ---
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002928: kvm_entry: vcpu 0, rip 0xffffffff81000b70
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002929: kvm_entry: vcpu 1, rip 0xffffffff81000b71
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002930: kvm_exit: vcpu 0 reason MSR_READ rip 0xffffffff81000020 info1 0x0000000000000000 info2 0x0000000000020003 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002931: kvm_exit: vcpu 1 reason SYSCALL rip 0xffffffff81000100 info1 0x0000000000000000 info2 0x0000000000020008 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002932: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff810000d0 info1 0x0000000000000000 info2 0x0000000000020004 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002933: kvm_exit: vcpu 1 reason HYPERCALL rip 0xffffffff81000010 info1 0x0000000000000000 info2 0x0000000000020007 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002935: kvm_entry: vcpu 1, rip 0xffffffff81000b77
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002936: kvm_entry: vcpu 0, rip 0xffffffff81000b78
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002937: kvm_emulate_insn: 0:ffffffff81000b79:0f 06 (prot64)
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002939: kvm_entry: vcpu 1, rip 0xffffffff81000b7b
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002940: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000080 info1 0x0000000000000000 info2 0x0000000000020004 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002941: kvm_entry: vcpu 1, rip 0xffffffff81000b7d
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002942: kvm_msr: msr_write 8b = 0xb7e
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002944: kvm_exit: vcpu 0 reason WBINVD rip 0xffffffff81000070 info1 0x0000000000000000 info2 0x0000000000020008 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002945: kvm_emulate_insn: 0:ffffffff81000b81:0f 32 (prot64)
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002946: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff810000b0 info1 0x0000000000000000 info2 0x000000000000001f intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002947: kvm_exit: vcpu 1 reason MSR_READ rip 0xffffffff81000070 info1 0x0000000000000000 info2 0x0000000000020009 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002948: kvm_msr: msr_write c0000101 = 0xb84
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002949: kvm_exit: vcpu 1 reason EPT_VIOLATION rip 0xffffffff81000100 info1 0x0000000000000000 info2 0x0000000000020001 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002950: kvm_exit: vcpu 0 reason MSR_WRITE rip 0xffffffff81000010 info1 0x0000000000000000 info2 0x0000000000020008 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002952: kvm_entry: vcpu 0, rip 0xffffffff81000b88
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002953: kvm_entry: vcpu 1, rip 0xffffffff81000b89
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002954: kvm_emulate_insn: 0:ffffffff81000b8a:6c (prot64)
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002955: kvm_entry: vcpu 1, rip 0xffffffff81000b8b
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002956: kvm_entry: vcpu 0, rip 0xffffffff81000b8c
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002957: kvm_emulate_insn: 0:ffffffff81000b8d:fb (prot64)
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002959: kvm_exit: vcpu 1 reason HYPERCALL rip 0xffffffff81000020 info1 0x0000000000000000 info2 0x0000000000020001 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002960: kvm_entry: vcpu 0, rip 0xffffffff81000b90
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002961: kvm_entry: vcpu 1, rip 0xffffffff81000b91
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002962: kvm_entry: vcpu 0, rip 0xffffffff81000b92
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002963: kvm_emulate_insn: 0:ffffffff81000b93:6d (prot64)
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002964: kvm_entry: vcpu 0, rip 0xffffffff81000b94
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002965: kvm_entry: vcpu 1, rip 0xffffffff81000b95
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002966: kvm_emulate_insn: 0:ffffffff81000b96:0f 01 d9 (prot64)
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002967: kvm_entry: vcpu 1, rip 0xffffffff81000b97
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002968: kvm_emulate_insn: 0:ffffffff81000b98:ec (prot64)
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002969: kvm_entry: vcpu 1, rip 0xffffffff81000b99
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002970: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000120 info1 0x0000000000000000 info2 0x0000000000020005 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002971: kvm_emulate_insn: 0:ffffffff81000b9b:f3 48 ab (prot64)
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002974: kvm_entry: vcpu 0, rip 0xffffffff81000b9e
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002976: kvm_entry: vcpu 0, rip 0xffffffff81000ba0
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002979: kvm_entry: vcpu 1, rip 0xffffffff81000ba3
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002980: kvm_msr: msr_write 175 = 0xba4
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002981: kvm_entry: vcpu 1, rip 0xffffffff81000ba5
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002982: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000080 info1 0x0000000000000000 info2 0x0000000000020010 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002983: kvm_entry: vcpu 1, rip 0xffffffff81000ba7
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002984: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff810000c0 info1 0x0000000000000000 info2 0x000000000002000a intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002985: kvm_emulate_insn: 0:ffffffff81000ba9:fb (prot64)
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002986: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000150 info1 0x0000000000000000 info2 0x0000000000020009 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002987: kvm_exit: vcpu 1 reason HYPERCALL rip 0xffffffff81000000 info1 0x0000000000000000 info2 0x0000000000020004 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002988: kvm_entry: vcpu 0, rip 0xffffffff81000bac
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002989: kvm_entry: vcpu 1, rip 0xffffffff81000bad
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002990: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000050 info1 0x0000000000000000 info2 0x0000000000020003 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002991: kvm_entry: vcpu 1, rip 0xffffffff81000baf
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002992: kvm_entry: vcpu 0, rip 0xffffffff81000bb0
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002993: kvm_exit: vcpu 1 reason HYPERCALL rip 0xffffffff81000130 info1 0x0000000000000000 info2 0x000000000002000a intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002994: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000030 info1 0x0000000000000000 info2 0x0000000000020003 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002995: kvm_exit: vcpu 1 reason INVLPG rip 0xffffffff81000010 info1 0x0000000000000000 info2 0x0000000000020003 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [000] d.... 129.002996: kvm_exit: vcpu 0 reason MSR_READ rip 0xffffffff81000050 info1 0x0000000000000000 info2 0x0000000000020009 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [001] d.... 129.002997: kvm_emulate_insn: 0:ffffffff81000bb5:0f a2 (prot64)
+L1: kvm:  qemu-system-x86-812 [002] d.... 129.002998: kvm_msr: msr_write 10 = 0xbb6
+L1: kvm:  qemu-system-x86-812 [003] d.... 129.002999: kvm_exit: vcpu 1 reason HYPERCALL rip 0xffffffff81000010 info1 0x0000000000000000 info2 0x0000000000020002 intr_info 0x00000000 error_code 0x00000000
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000001: kvm_exit: vcpu 0 reason GP excp rip 0xffffffff81000010 info1 0x0 info2 0x0000000000000000 intr_info 0x0 error_code 0x0
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000002: kvm_exit: vcpu 0 reason A|B rip 0xffffffff81000010 info1 0x0 info2 0x0000000000020004 intr_info 0x0 error_code 0x0
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000003: kvm_exit: vcpu 0 reason HYPERCALL rip 0xffffffff81000010 info1 0x0 info2 0x0000000000000000 intr_info 0x0 error_code 0x0
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000004: kvm_emulate_insn: f000:fff0: (real)
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000005: kvm_emulate_insn: f000:fff0:ea 5b e0 00 f0 (real)
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000006: kvm_emulate_insn: f000:fff0:66 66 (real)
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000007: kvm_entry: vcpu 0 ÿþ high bytes
+L1: kvm:  qemu-system-x86-812 [000] d.... 999.000008: kvm_exit: vcpu 0 kvm_exit: vcpu 1 reason HLT rip 0x1 info1 0x0 info2 0x2 intr_info 0x0 error_code 0x0

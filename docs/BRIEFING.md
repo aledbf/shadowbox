@@ -183,7 +183,7 @@ Ordered by how much is on the table.
 
 3. **More work served inside the switcher.** The CR3 fast path is the proof
    that this pays. What else exits for work the hypervisor does by lookup?
-   Get the histogram (`make exits`, then `scripts/resolve-exits.sh`) and look
+   Get the histogram (`make exits`, then `pvmtest resolve-exits`) and look
    at the top reasons with their guest RIPs.
 
 4. **The ~1.38x of PVM's syscall over a KPTI syscall.** Not structural, but
@@ -280,7 +280,7 @@ the LA57 top-p4d merge in one move.
 
 Every one of these cost real time at least once.
 
-- **`scripts/run-l1.sh` does not build anything.** It boots whatever is in
+- **`pvmtest boot l1` does not build anything.** It boots whatever is in
   `out/`. Run `make host-kernel` (or a target that depends on it) after editing
   the kernel, or you will measure a module that does not contain your change.
 - **Do not check a kernel build with `grep error:`.** `modpost` failures read
@@ -289,7 +289,7 @@ Every one of these cost real time at least once.
   status, or `grep -iE '^ERROR|error:'`.
 - **Metric lines must end with `#END`.** Interleaved `printk` corrupted a
   metric line once and produced a plausible wrong ratio (`0.00x`);
-  `scripts/compare-perf.sh` now fails loudly instead.
+  the parser ignores metric lines without it.
 - **Use `make perf-baseline` and compare against the recorded baseline**, not
   against a number in a chat log. `make perf-matrix` takes medians over
   reps; single runs on this machine drift by tens of percent.

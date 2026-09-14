@@ -12,7 +12,7 @@ window. Two things get you through it.
 ## The host's account
 
 A guest that never prints anything still leaves a trace on the host.
-`scripts/l1-agent.sh` turns on the `kvm` tracepoints around the guest
+The L1 agent (`tools/l1agent`) turns on the `kvm` tracepoints around the guest
 run and prints the tail afterwards, filtered down to the events that say
 something — instruction emulation and the mmu-notifier unmap storm at
 qemu exit drown out everything else.
@@ -59,7 +59,7 @@ oops may hand you the message for free.
 
 The kernel side reports PVM exit reasons, and the hypercall number in
 `info2`, so `perf kvm stat` can say what a guest is actually spending its
-exits on. `scripts/l1-agent.sh` wraps the guest in `perf kvm stat record`
+exits on. The L1 agent (`tools/l1agent`) wraps the guest in `perf kvm stat record`
 for the `perf` suite and prints the report afterwards.
 
 It needs a perf built against this tree — a distro perf does not know the
