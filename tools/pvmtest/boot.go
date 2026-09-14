@@ -279,6 +279,11 @@ func L1Argv(c Config, o L1Opts, payload string) []string {
 	if o.Mem != "" {
 		appendLine = append(appendLine, "pvmtest.guest_mem="+o.Mem)
 	}
+	if o.Vendor == "pvm" {
+		// The switcher's entry hooks are off unless the host is booted
+		// with pvm_host, and kvm-pvm refuses to load without them.
+		appendLine = append(appendLine, "pvm_host")
+	}
 	appendLine = append(appendLine, o.L1Args...)
 	appendLine = append(appendLine, "systemd.mask=serial-getty@ttyS0.service", "systemd.show_status=false")
 	img := filepath.Join(c.Out, "images")

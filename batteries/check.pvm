@@ -18,5 +18,5 @@ run profile-nmi       profile=perf/fault-rounds guest=pvmtest.scale=8
 
 # The hardware floor and the hard requirements: refused, and saying why.
 run refuse-kpti       suite=failclosed pti=on                 expect=refuse-load reason="without KPTI"
-run refuse-fsgsbase   suite=failclosed l1append=clearcpuid=fsgsbase expect=refuse-load reason="FSGSBASE is required"
+run refuse-fsgsbase   suite=failclosed l1append=clearcpuid=fsgsbase expect=refuse-load reason="requires FSGSBASE"
 run refuse-pcid       suite=failclosed l1append=clearcpuid=pcid     expect=refuse-load reason="PCID and INVPCID"

@@ -217,16 +217,20 @@ func testEventEntry(v *VM) {
 
 // --- the whole PVM MSR window -----------------------------------------
 
+// pvmMSRRange is how many MSR numbers the ABI sets aside from
+// PVM_VIRTUAL_MSR_BASE, defined and reserved together.
+const pvmMSRRange = 16
+
 func testMSRWindow(v *VM) {
 	values := []uint64{0, 1, ^uint64(0), 0x0000800000000000, 0xffffffff80000000}
 	survived := true
 
-	// Every MSR in the PVM range, including the two that were deprecated
-	// and the unassigned tail, with values chosen to be wrong.  Nothing
+	// Every MSR in the 16-number PVM range, the reserved tail included,
+	// with values chosen to be wrong.  Nothing
 	// here asserts an outcome -- some of these are legitimately accepted
 	// -- only that the host is still answering ioctls afterwards.
 	Case = "pvm/msr-window/sweep"
-	for msr := uint32(PVM_VIRTUAL_MSR_BASE); msr <= PVM_VIRTUAL_MSR_BASE+PVM_VIRTUAL_MSR_MAX_NR; msr++ {
+	for msr := uint32(PVM_VIRTUAL_MSR_BASE); msr < PVM_VIRTUAL_MSR_BASE+pvmMSRRange; msr++ {
 		for _, val := range values {
 			if v.SetMSR(msr, val) == -int(syscall.EINVAL) {
 				survived = false
@@ -245,7 +249,7 @@ func testMSRWindow(v *VM) {
 			Nok("the vCPU stopped answering after the sweep")
 		} else {
 			Ok("%d MSRs x %d values, host still answering",
-				PVM_VIRTUAL_MSR_MAX_NR+1, len(values))
+				pvmMSRRange, len(values))
 		}
 	}
 

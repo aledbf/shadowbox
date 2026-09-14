@@ -17,7 +17,7 @@ func TestL1Argv(t *testing.T) {
 		"-drive file=/o/images/l1-rootfs.ext4,if=virtio,format=raw,snapshot=on " +
 		"-append root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=perf pvmtest.vendor=pvm " +
 		"pvmtest.profile_case=perf/syscall pvmtest.guest_append=pvmtest.only=perf/page-fault,pvm_direct_pf=off " +
-		"pvmtest.mod_args=a=1 pvmtest.guest_cpus=8 pti=on systemd.mask=serial-getty@ttyS0.service systemd.show_status=false " +
+		"pvmtest.mod_args=a=1 pvmtest.guest_cpus=8 pvm_host pti=on systemd.mask=serial-getty@ttyS0.service systemd.show_status=false " +
 		"-virtfs local,path=/p,mount_tag=payload,security_model=none,readonly=on -nographic -no-reboot -display none -serial mon:stdio"
 	if got != want {
 		t.Errorf("argv:\n got %s\nwant %s", got, want)
