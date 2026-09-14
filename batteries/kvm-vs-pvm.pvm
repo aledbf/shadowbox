@@ -1,6 +1,6 @@
 # The comparison that matters in the end: upstream KVM against PVM, each on
 # its own kernel.  A is master -- host and guest built from it, kvm-intel in
-# L1; B is pvm-7.3-series -- host and guest built from it, kvm-pvm with the
+# L1; B is pvm -- host and guest built from it, kvm-pvm with the
 # guest's defaults (direct #PF on).  Same machine, same L1 shape, same
 # initrd and suites, order alternating every repetition.  B/A is PVM's cost
 # relative to KVM.
@@ -11,7 +11,7 @@
 #   KERNEL_GIT=~/src/linux make battery B=kvm-vs-pvm
 
 kernel kvm git=${KERNEL_GIT} rev=${KVM_REV:-master}
-kernel pvm git=${KERNEL_GIT} rev=${PVM_REV:-pvm-7.3-series}
+kernel pvm git=${KERNEL_GIT} rev=${PVM_REV:-pvm}
 
 set host=timing cpus=1,2,4,8 reps=5 a.kernel=kvm a.vendor=intel b.kernel=pvm b.vendor=pvm
 

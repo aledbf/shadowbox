@@ -8,7 +8,7 @@
 #   KERNEL_GIT=<linux tree> make battery B=kut J=2
 
 kernel kvm git=${KERNEL_GIT} rev=${KVM_REV:-master}
-kernel pvm git=${KERNEL_GIT} rev=${PVM_REV:-pvm-7.3-series}
+kernel pvm git=${KERNEL_GIT} rev=${PVM_REV:-pvm}
 
 set suite=kut vendor=intel
 

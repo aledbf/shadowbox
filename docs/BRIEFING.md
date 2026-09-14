@@ -10,8 +10,10 @@ Read "The design" and "Ruled out" before proposing anything.
 
 Two repositories:
 
-- `linux-aledbf`, branch **`pvm-7.3-series`** - the kernel series on
-  `v7.3-rc2`. Each commit builds (`bzImage` + `modules`) on its own.
+- `github.com/aledbf/linux`, branch **`pvm`** - the kernel series on upstream
+  `master` (v7.3-rc2+27): 54 commits, each building host and guest on its own,
+  plus one last commit marked NOT FOR UPSTREAM with the debug instrumentation
+  (`CONFIG_KVM_PVM_STATS`).
 - `pvm-testbed` - the harness, and only the harness: it carries no kernel.
   Kernels come from `KSRC`, or from a git tree and revision named by a
   battery's `kernel` directive. L0 runs L1 as an ordinary KVM guest, L1 loads
@@ -51,11 +53,17 @@ hooks.
 
 ### The hardware floor
 
-`kvm-pvm` refuses to load on a host with KPTI (`X86_FEATURE_PTI`), without
-PCID and INVPCID, without FSGSBASE, or with FRED. Hosts that need KPTI are CPUs
-that no longer ship, and supporting them costs CR3 handling in shared entry
-code. FRED replaces the IDT entry paths the switcher owns. LA57 is supported
-and tested under TCG (`batteries/tcg.pvm`).
+The host must be booted with `pvm_host`, which enables the switcher's entry
+hooks (`X86_FEATURE_PVM_HOST`) only if the host has FSGSBASE, PCID and INVPCID,
+no KPTI, no FRED and is not a Xen PV guest; `kvm-pvm` refuses to load without
+it, and also on TDX/SEV-ES hosts. Without `pvm_host` the entry code is the
+same as a kernel without the switcher. Hosts that need KPTI are CPUs that no
+longer ship, and supporting them costs CR3 handling in shared entry code.
+FRED replaces the IDT entry paths the switcher owns.
+
+LA57 is supported but cannot be tested on this machine: the CPU has no LA57,
+and QEMU's TCG does not implement PCID/INVPCID, so kvm-pvm cannot load under
+TCG (`batteries/tcg.pvm` and `pkey-tcg.pvm` fail at module load).
 
 ### The switcher
 
@@ -78,23 +86,30 @@ guest. It serves on its own, without an exit to KVM:
 ### Upstream KVM against PVM
 
 `batteries/kvm-vs-pvm.pvm`: `master` (host and guest, `kvm-intel` in L1)
-against `pvm-7.3-series` (host and guest, `kvm-pvm`, direct #PF on), each a
+against `pvm` at 778da18f840e (host and guest, `kvm-pvm`, direct #PF on), each a
 timing build, same L1 shape, order alternating, medians of 5. i9-13900HK, L1
 with 8 vCPUs and THP:
 
 | benchmark | KVM, 1 cpu | PVM, 1 cpu | 1 cpu | 2 | 4 | 8 |
 |---|---:|---:|---:|---:|---:|---:|
-| `perf/syscall` (getpid) | 58.5 ns | 211 ns | 3.60x | 3.90x | 3.71x | 3.58x |
-| `perf/context-switch` (pipe) | 5147 ns | 7924 ns | 1.54x | 1.66x | 1.92x | - |
-| `perf/page-fault` | 1001 ns | 3004 ns | 3.00x | 3.40x | 2.93x | 2.99x |
-| `perf/parallel-fault` | 705 ns | 2737 ns | 3.88x | 3.83x | 3.73x | 4.71x |
-| `perf/fork-exec` | 470 µs | 1675 µs | 3.56x | 4.82x | 4.56x | 4.58x |
-| `perf/parallel-fork` | 445 µs | 1586 µs | 3.56x | 4.81x | 4.98x | 6.51x |
+| `perf/syscall` (getpid) | 58.0 ns | 230 ns | 3.97x | 3.80x | 3.86x | 3.89x |
+| `perf/context-switch` (pipe) | 5194 ns | 8140 ns | 1.57x | 1.79x | 1.68x | - |
+| `perf/page-fault` | 1047 ns | 3023 ns | 2.89x | 2.75x | 2.99x | 3.01x |
+| `perf/parallel-fault` | 689 ns | 2789 ns | 4.05x | 2.97x | 5.07x | 6.97x |
+| `perf/fault-scaling` | 793 ns | 2738 ns | 3.45x | 3.07x | 2.82x | 2.66x |
+| `perf/fork-exec` | 456 µs | 1638 µs | 3.59x | 4.37x | 4.83x | 5.27x |
+| `perf/parallel-fork` | 436 µs | 1603 µs | 3.68x | 4.02x | 5.08x | 7.35x |
 
-The two sides' ranges are disjoint everywhere except context-switch at 1 cpu.
-Context-switch lost reps at 2 and 4 cpus and reports nothing at 8 - read that
-row as indicative. `perf/fault-scaling` is 2.9-3.5x and the `fault-rounds`
-refaults 2.7-5.2x.
+All 120 boots passed. The ranges are disjoint everywhere except context-switch
+at 1 and 2 cpus and page-fault at 2. Context-switch loses reps at 2 and 4 cpus
+and reports nothing at 8 - read that row as indicative. The `fault-rounds`
+refaults are 2.2-5.4x, with one outlier at 4 cpus.
+
+Open: `parallel-fault` at 4 and 8 cpus and `syscall` are slower than they were
+before the upstream cleanup (4.71x -> 6.97x at 8 cpus, 211 -> 230 ns); the
+cleanup added VERW and BHB clearing on every world switch, PVCS dirty marking
+under SRCU on every exit, a CR2 push on every entry and a flush of the current
+root on INVLPG hypercalls. Which of these costs what has not been measured.
 
 **The nesting inflates PVM's numbers.** Every `vcpu_enter_guest()` reads
 `MSR_IA32_DEBUGCTLMSR`, which in L1 is an exit to L0 costing ~0.8-1 µs.
@@ -216,23 +231,24 @@ boot and `pvmtest stats <log>`.
 
 ## Open leads: fewer changes
 
-`v7.3-rc2..pvm-7.3-series`: 49 commits, 115 files, 11063 insertions, 295
-deletions. That includes debug-only commits to drop before upstreaming: the
-`CONFIG_KVM_PVM_STATS` counters, the `vcpu_enter_guest()` stamps and the
-fault classification.
+`master..pvm` without the instrumentation commit: 54 commits, 114 files, 10190
+insertions, 369 deletions. The first five commits are fixes that stand on
+their own (objtool pv_ops matching, RDPKRU/WRPKRU emulation and its selftest,
+exception state ordering, vendor-narrowed ARCH_CAPABILITIES).
 
 | area | files | + | − | note |
 |---|---:|---:|---:|---|
-| `arch/x86/kvm/pvm` | 4 | 4727 | 0 | new, nothing shared |
-| `Documentation` | 4 | 1630 | 0 | spec, invariants |
-| `arch/x86/kernel` | 18 | 1267 | 32 | mostly PIE + the guest side |
-| `arch/x86/entry` | 9 | 1135 | 21 | switcher (new) + hooks |
-| `arch/x86/include` | 26 | 1038 | 69 | |
-| `arch/x86/kvm/mmu` | 5 | 312 | 30 | the shared shadow MMU |
-| `arch/x86/kvm` (other) | 10 | 230 | 29 | mostly the debug stamps |
-| `tools` | 9 | 226 | 13 | objtool, perf, one selftest |
-| `arch/x86/mm` | 9 | 94 | 30 | |
-| the rest | 25 | ~400 | ~70 | PIE: relocs, Kconfig, xen, pvh, bpf, power |
+| `arch/x86/kvm/pvm` | 4 | 4253 | 0 | new, nothing shared |
+| `Documentation` | 4 | 1246 | 0 | spec, invariants |
+| `arch/x86/entry` | 13 | 1212 | 107 | switcher (new), guest entry, hooks |
+| `arch/x86/include` | 26 | 1041 | 61 | |
+| `arch/x86/kernel` | 19 | 990 | 47 | mostly PIE + the guest side |
+| `tools` | 8 | 364 | 15 | objtool, perf, one selftest |
+| `arch/x86/kvm/mmu` | 4 | 258 | 29 | the shared shadow MMU |
+| `arch/x86/boot` | 3 | 248 | 4 | early relocation, kernel mapping |
+| `arch/x86/kvm` (other) | 11 | 163 | 28 | vendor hooks |
+| `arch/x86/mm` | 8 | 101 | 19 | |
+| the rest | 14 | 314 | 59 | Kconfig, Makefiles, relocs, bpf, power, xen |
 
 Targets, in the order a reviewer would care:
 
@@ -241,14 +257,12 @@ Targets, in the order a reviewer would care:
    half" change would do. It is independent of PVM and arguably wants its own
    upstream life. The `xen/`, `power/`, `platform/pvh/` and `bpf` changes are
    PIE consequences, not PVM ones.
-2. **The shared shadow MMU**, the part upstream will scrutinise hardest. Three
-   globals (`shadow_force_user_mask`, `shadow_emulate_smep_with_nx`,
-   `shadow_pkey_mask`) that stay zero for every other vendor, the protection
-   key threaded to the SPTE, and `mmu_adjust_kernel_only_access()`. Ask whether
-   the three globals want to be one.
-3. **The entry hooks**: tests of `TSS_extra(host_rsp)` in `entry_64.S`, the CR3
-   macros in `calling.h` and the direct #PF jump in `asm_exc_page_fault`, all
-   under `CONFIG_X86_PVM_SWITCHER`.
+2. **The shared shadow MMU**, the part upstream will scrutinise hardest: one
+   global (`shadow_guest_cpl3`) plus the host root, the protection key in the
+   SPTE with `role.cr4_pke`, and `mmu_adjust_kernel_only_access()`.
+3. **The entry hooks**: `ALTERNATIVE`s on `X86_FEATURE_PVM_HOST` in
+   `entry_64.S`, `calling.h` and `asm_exc_page_fault`, patched in only on hosts
+   booted with `pvm_host`.
 
 ---
 
