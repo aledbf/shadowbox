@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -242,10 +243,15 @@ func (e *Env) logChecks(b Boot, log string) []string {
 	return fails
 }
 
-func (e *Env) runBoot(b Boot) (*Status, error) {
+func (e *Env) runBoot(b Boot, unpinned bool) (*Status, error) {
 	cmd, log, err := e.command(b)
 	if err != nil {
 		return nil, err
+	}
+	if unpinned {
+		// Pinning is for measurements: several L1s pinned to the same
+		// P-cores would only fight over them.
+		cmd.Env = append(cmd.Env, "PIN_CPUS=none")
 	}
 	dest := filepath.Join(e.Results, "logs", b.LogName+".log")
 	if e.DryRun {
@@ -274,6 +280,43 @@ func (e *Env) runBoot(b Boot) (*Status, error) {
 	verdict, why := judge(b, o, string(raw), code, e.logChecks(b, dest))
 	return &Status{Boot: b, Outcome: o, Verdict: verdict, Why: why,
 		Seconds: time.Since(start).Seconds()}, nil
+}
+
+// runPool runs boots, jobs at a time, printing and recording each as it
+// finishes.  The statuses come back in the order of boots.
+func (e *Env) runPool(boots []Boot, jobs int) ([]*Status, error) {
+	if jobs < 1 {
+		jobs = 1
+	}
+	statuses := make([]*Status, len(boots))
+	errs := make([]error, len(boots))
+	sem := make(chan struct{}, jobs)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for i, b := range boots {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, b Boot) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			s, err := e.runBoot(b, jobs > 1)
+			mu.Lock()
+			defer mu.Unlock()
+			statuses[i], errs[i] = s, err
+			if err != nil || e.DryRun {
+				return
+			}
+			e.record(s)
+			fmt.Printf("  %-4s %-48s %5.0fs  %s\n", s.Verdict, b.LogName, s.Seconds, s.Why)
+		}(i, b)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+	return statuses, nil
 }
 
 func (e *Env) record(s *Status) {

@@ -84,6 +84,7 @@ func cmdRun(args []string, listOnly bool) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	dry := fs.Bool("n", false, "print the boots and their commands, run nothing")
 	only := fs.String("only", "", "comma separated item names to run")
+	jobs := fs.Int("j", 1, "boots of run items at once (never for matrix/ab); unpinned when > 1")
 	fs.Parse(args)
 	if fs.NArg() != 1 {
 		usage()
@@ -146,6 +147,27 @@ func cmdRun(args []string, listOnly bool) int {
 	}
 
 	bad := 0
+	// Consecutive run items share a pool of *jobs boots; matrix and ab
+	// items measure, so they run alone and in order.
+	var pending []Boot
+	flush := func() int {
+		if len(pending) == 0 {
+			return 0
+		}
+		statuses, err := env.runPool(pending, *jobs)
+		pending = nil
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return -1
+		}
+		n := 0
+		for _, s := range statuses {
+			if s.Verdict != "ok" && s.Verdict != "dry" {
+				n++
+			}
+		}
+		return n
+	}
 	for _, it := range items {
 		boots, err := Boots(it)
 		if err != nil {
@@ -153,22 +175,19 @@ func cmdRun(args []string, listOnly bool) int {
 			return 2
 		}
 		fmt.Printf("== %s (%d boot%s)\n", it.String(), len(boots), map[bool]string{true: "", false: "s"}[len(boots) == 1])
-		var statuses []*Status
-		for _, b := range boots {
-			s, err := env.runBoot(b)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %v\n", b.LogName, err)
-				return 2
-			}
-			if env.DryRun {
-				continue
-			}
-			env.record(s)
-			fmt.Printf("  %-4s %-48s %5.0fs  %s\n", s.Verdict, b.LogName, s.Seconds, s.Why)
-			if s.Verdict != "ok" && it.Kind == "run" {
-				bad++
-			}
-			statuses = append(statuses, s)
+		if it.Kind == "run" {
+			pending = append(pending, boots...)
+			continue
+		}
+		if n := flush(); n < 0 {
+			return 2
+		} else {
+			bad += n
+		}
+		statuses, err := env.runPool(boots, 1)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 2
 		}
 		if env.DryRun {
 			continue
@@ -208,10 +227,15 @@ func cmdRun(args []string, listOnly bool) int {
 			printTSV(path)
 		}
 		for _, s := range statuses {
-			if it.Kind != "run" && s.Verdict != "ok" {
+			if s.Verdict != "ok" {
 				fmt.Printf("  (dropped from %s: %s: %s)\n", it.Name, s.Boot.LogName, s.Why)
 			}
 		}
+	}
+	if n := flush(); n < 0 {
+		return 2
+	} else {
+		bad += n
 	}
 	if !env.DryRun {
 		env.summary.Close()

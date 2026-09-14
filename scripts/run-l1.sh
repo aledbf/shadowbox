@@ -77,6 +77,9 @@ log_file="$OUT/logs/l1-$suite${2:+-$vendor}${LOG_SUFFIX:+-$LOG_SUFFIX}.log"
 
 # Pinned, so a measured run cannot land on a different class of core than
 # the run it is being compared with.  See pin_cpu_list() in lib.sh.
+# The rootfs is shared by every L1 and booted as a snapshot: L1's writes go
+# to a temporary overlay, so the image is never modified and several L1s can
+# run at once (tools/pvmtest run -j).
 PIN="$(pin_prefix)"
 [ -n "$PIN" ] && log "pinning L1 to cpus $(pin_cpu_list)"
 
@@ -101,7 +104,7 @@ timeout --foreground -k 5 "$l1_timeout" \
 	-cpu "$L1_CPU" \
 	-smp "$L1_CPUS" -m "$L1_MEM" \
 	-kernel "$OUT/images/host-bzImage" \
-	-drive file="$OUT/images/l1-rootfs.ext4",if=virtio,format=raw \
+	-drive file="$OUT/images/l1-rootfs.ext4",if=virtio,format=raw,snapshot=on \
 	-append "root=/dev/vda rw console=ttyS0,115200 panic=-1 pvmtest.suite=$suite pvmtest.vendor=$vendor ${PROFILE_CASE:+pvmtest.profile_case=$PROFILE_CASE} ${GUEST_APPEND:+pvmtest.guest_append=$GUEST_APPEND} ${MOD_ARGS:+pvmtest.mod_args=$MOD_ARGS} ${GUEST_CPUS:+pvmtest.guest_cpus=$GUEST_CPUS} ${GUEST_MEM:+pvmtest.guest_mem=$GUEST_MEM} ${L1_APPEND:-} \
 systemd.mask=serial-getty@ttyS0.service systemd.show_status=false" \
 	-virtfs local,path="$payload",mount_tag=payload,security_model=none,readonly=on \

@@ -38,7 +38,7 @@ BOOT_TIMEOUT="${BOOT_TIMEOUT:-180}"
 #   PIN_CPUS=none   do not pin at all
 pin_cpu_list() {
 	if [ "${PIN_CPUS:-}" = none ]; then
-		return
+		return 0
 	fi
 	if [ -n "${PIN_CPUS:-}" ]; then
 		printf '%s' "$PIN_CPUS"
@@ -71,7 +71,8 @@ pin_cpu_list() {
 pin_prefix() {
 	local cpus
 	cpus=$(pin_cpu_list)
-	[ -n "$cpus" ] || return
+	# return 0: callers run under set -e, and "nothing to pin" is not an error.
+	[ -n "$cpus" ] || return 0
 	command -v taskset >/dev/null 2>&1 || {
 		warn "taskset missing: measurements will drift across core types"
 		return
