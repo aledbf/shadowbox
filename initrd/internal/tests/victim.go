@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"syscall"
 	"unsafe"
@@ -203,6 +204,27 @@ func victimPkey(mode string) {
 
 	fmt.Printf("victim: reached (key %d, %s)\n", key, mode)
 	os.Stdout.Sync()
+
+	// An allowed read that faults anyway is the case under investigation
+	// (security/pkey-allowed-repeat): say what PKRU was on both sides of it
+	// rather than dying with the runtime's report.  A denied read must still
+	// die of the signal, so only "allow" recovers.
+	if mode == "allow" {
+		before := rdpkru()
+		debug.SetPanicOnFault(true)
+		defer func() {
+			if r := recover(); r != nil {
+				addr := uintptr(0)
+				if e, ok := r.(interface{ Addr() uintptr }); ok {
+					addr = e.Addr()
+				}
+				fmt.Fprintf(os.Stderr, "victim: allowed read faulted: addr=%#x page=%p "+
+					"key=%d pkru before=%#x after=%#x: %v\n", addr, &b[0], key,
+					before, rdpkru(), r)
+				os.Exit(6)
+			}
+		}()
+	}
 
 	if b[0] != 0x5a {
 		fmt.Fprintf(os.Stderr, "victim: read back %#x\n", b[0])

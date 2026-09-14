@@ -86,6 +86,40 @@ func registerDirectPF(h *harness.Harness) {
 		},
 	})
 
+	// security/pkey-allowed repeated, for the intermittent failure under TCG
+	// with LA57: how often, and with what PKRU.  Not in any suite; run it
+	// by name.
+	h.Add(harness.Case{
+		Name:    "security/pkey-allowed-repeat",
+		Suites:  []string{harness.Scaling},
+		Timeout: 3600 * 1e9,
+		Fn: func(t *harness.T) error {
+			const runs = 200
+			failed := 0
+			for i := 0; i < runs; i++ {
+				rc, out, err := runVictim("victim-pkey", "allow")
+				if err != nil {
+					return err
+				}
+				if rc == 77 {
+					t.Logf("skipped: the guest kernel has no protection keys")
+					return nil
+				}
+				if rc != 0 {
+					failed++
+					if failed <= 5 {
+						t.Logf("run %d: rc=%d %s", i, rc, trim(out))
+					}
+				}
+			}
+			t.Metric("failed", float64(failed), "count")
+			if failed > 0 {
+				return fmt.Errorf("%d of %d allowed reads failed", failed, runs)
+			}
+			return nil
+		},
+	})
+
 	// Permissions flipping under concurrent readers: a page goes read-only,
 	// its SPTE is dropped or write-protected, it comes back writable and is
 	// written, all while other CPUs fault on it and its neighbours in the

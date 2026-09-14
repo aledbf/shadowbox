@@ -43,3 +43,13 @@ TEXT ·cpuidRaw(SB), NOSPLIT, $0-24
 	MOVL	CX, ecx+16(FP)
 	MOVL	DX, edx+20(FP)
 	RET
+
+// func rdpkru() uint32 -- RDPKRU is 0F 01 EE
+//
+// The PKRU this thread runs on.  RDPKRU needs ECX zero; spelled as bytes
+// because the assembler has no mnemonic for it.
+TEXT ·rdpkru(SB), NOSPLIT, $0-4
+	XORL	CX, CX
+	BYTE	$0x0f; BYTE $0x01; BYTE $0xee
+	MOVL	AX, ret+0(FP)
+	RET

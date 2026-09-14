@@ -125,6 +125,21 @@ static void test_features_enabled(struct vm *v)
 
 /* --- MSR_PVM_EVENT_ENTRY ---------------------------------------------- */
 
+/* Whether the host runs 5-level paging: the kernel reports la57 only then. */
+static bool host_5level(void)
+{
+	char line[4096];
+	bool found = false;
+	FILE *f = fopen("/proc/cpuinfo", "r");
+
+	if (!f)
+		return false;
+	while (!found && fgets(line, sizeof(line), f))
+		found = !strncmp(line, "flags", 5) && strstr(line, " la57");
+	fclose(f);
+	return found;
+}
+
 static void test_event_entry(struct vm *v)
 {
 	/*
@@ -133,13 +148,19 @@ static void test_event_entry(struct vm *v)
 	 * the canonical hole is canonical itself and not canonical at +256,
 	 * which is the case a single check would miss.
 	 */
-	static const struct {
+	/*
+	 * The top of the canonical lower half is the host's: bit 47 on a
+	 * 4-level host, bit 56 on a 5-level one, where every value below
+	 * would be a perfectly canonical address.
+	 */
+	uint64_t top = host_5level() ? 1ULL << 56 : 1ULL << 47;
+	const struct {
 		const char *why;
 		uint64_t val;
 	} bad[] = {
-		{ "non-canonical",		0x0000800000000000ULL },
-		{ "canonical, +256 is not",	0x00007ffffffffff0ULL },
-		{ "canonical, +512 is not",	0x00007ffffffffe10ULL },
+		{ "non-canonical",		top },
+		{ "canonical, +256 is not",	top - 0x10 },
+		{ "canonical, +512 is not",	top - 0x1f0 },
 	};
 	size_t i;
 

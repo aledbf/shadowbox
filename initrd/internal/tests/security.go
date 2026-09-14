@@ -39,6 +39,8 @@ func callAddr(fn uintptr)
 //go:noescape
 func readAddr(p uintptr) byte
 
+func rdpkru() uint32
+
 // mapFixedNoreplace is not in Go's syscall package.
 const mapFixedNoreplace = 0x100000
 
