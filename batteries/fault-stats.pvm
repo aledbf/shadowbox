@@ -1,0 +1,9 @@
+# Where the fault benchmarks' exits go: every case bracketed with counter
+# snapshots (stats-<boot>.tsv in the results).  A CONFIG_KVM_PVM_STATS host.
+
+set host=stats stats=on cpus=1,8
+
+run faults        suite=perf cases=perf/page-fault,perf/parallel-fault
+run fault-rounds  suite=perf cases=perf/fault-rounds
+run fault-scaling suite=perf cases=perf/fault-scaling
+run faults-dpf-off suite=perf cases=perf/page-fault,perf/parallel-fault guest=pvm_direct_pf=off

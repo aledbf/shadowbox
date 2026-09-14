@@ -51,11 +51,37 @@ it is where to start.
 Start with `make deps`; it names anything missing and the package that
 carries it.
 
+## Batteries
+
+Everything past a single stage runs as a battery: a file under
+`batteries/` that says which boots to do and what counts as passing, run by
+`tools/pvmtest` (`make battery B=<name>`).
+
+```
+run      default   suite=default
+run      la57      suite=default l1=tcg-la57 allow-fail=time/monotonic
+run      no-kpti   suite=failclosed pti=on expect=refuse-load reason="without KPTI"
+matrix   perf      suite=perf vendor=pvm,intel cpus=1,2,4,8,16 reps=5 host=timing
+ab       dpf       suite=perf cpus=1,8 reps=5 a.guest=pvm_direct_pf=off b.guest=pvm_direct_pf=on
+```
+
+The runner refuses an item that needs another host build (`host=stats` or
+`timing`), keeps every log and a manifest (kernel and testbed revisions,
+the battery itself) in `out/results/<battery>-<time>/`, writes
+`summary.tsv` with a verdict per boot -- known failures listed, kernel log
+checked by `scripts/sanitize-log.sh`, selftests by `check-selftests.sh` --
+and reduces `matrix` and `ab` items to medians, deltas and whether the two
+sides' ranges overlap.  `pvmtest list <battery>` prints the boots and their
+exact `run-l1.sh` command lines without running anything; `pvmtest stats
+<log>` gives per-case counter deltas of a `stats=on` boot.
+
 ## Layout
 
 ```
 configs/        kernel config fragments: common, guest, host
 scripts/        build and run; each does one thing and says what it did
+batteries/      what to run and what passing means, for tools/pvmtest
+tools/pvmtest/  the battery runner (Go, standard library only)
 initrd/         the guest's entire user space, in Go
 out/            everything built (gitignored)
 out/logs/       one serial log per boot; this is the primary evidence

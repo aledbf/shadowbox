@@ -1,0 +1,2 @@
+# The default suite ten times over: what finds the once-in-thirty WARN.
+run soak suite=default reps=10

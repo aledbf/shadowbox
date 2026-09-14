@@ -1,0 +1,9 @@
+# security/pkey-allowed, 200 times per boot: KVM against TCG, 4- and 5-level,
+# direct #PF on and off.  The victim prints PKRU on each failure.
+
+set cpus=1 suite=perf cases=security/pkey-allowed-repeat
+
+run kvm
+run la57-dpf-off  l1=tcg-la57 guest=pvm_direct_pf=off allow-fail=security/pkey-allowed-repeat
+run la57-dpf-on   l1=tcg-la57                          allow-fail=security/pkey-allowed-repeat
+run tcg4-dpf-off  l1=tcg      guest=pvm_direct_pf=off allow-fail=security/pkey-allowed-repeat

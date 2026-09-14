@@ -1,0 +1,11 @@
+# PVM_FEATURE_DIRECT_PF off and on, on the same host binary: the guest
+# declines it with pvm_direct_pf=off.  Order alternates every repetition.
+# The Scaling cases boot on their own so they cannot perturb the perf suite.
+#
+#   make battery B=direct-pf
+
+set host=timing cpus=1,8 reps=5 a.guest=pvm_direct_pf=off b.guest=pvm_direct_pf=on
+
+ab perf           suite=perf
+ab fault-scaling  suite=perf cases=perf/fault-scaling
+ab fault-rounds   suite=perf cases=perf/fault-rounds

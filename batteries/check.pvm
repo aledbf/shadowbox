@@ -1,0 +1,22 @@
+# What a change has to pass before it is called done: the functional,
+# negative and VMM-facing suites under PVM, the same under kvm-intel so a
+# test bug is not mistaken for a PVM one, NMIs into the switcher's windows,
+# and the hosts kvm-pvm must refuse.  Any host build.
+#
+#   make battery B=check
+
+run default           suite=default
+run security          suite=security
+run full              suite=full
+run hosttests         suite=hosttests
+run default-intel     suite=default   vendor=intel
+run security-intel    suite=security  vendor=intel
+run hosttests-intel   suite=hosttests vendor=intel
+
+# 4 kHz perf sampling while the switcher and the direct #PF path run.
+run profile-nmi       profile=perf/fault-rounds guest=pvmtest.scale=8
+
+# The hardware floor and the hard requirements: refused, and saying why.
+run refuse-kpti       suite=failclosed pti=on                 expect=refuse-load reason="without KPTI"
+run refuse-fsgsbase   suite=failclosed l1append=clearcpuid=fsgsbase expect=refuse-load reason="FSGSBASE is required"
+run refuse-pcid       suite=failclosed l1append=clearcpuid=pcid     expect=refuse-load reason="PCID and INVPCID"

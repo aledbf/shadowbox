@@ -225,8 +225,6 @@ if [ "$SUITE" = perf ]; then
 	# harness still needs the console for its result line, which is
 	# forty-odd lines rather than thirty thousand characters.
 	APPEND="$APPEND quiet loglevel=0"
-	G_EXTRA="$(sed -n 's/.*pvmtest\.guest_append=\([^ ]*\).*/\1/p' /proc/cmdline)"
-	[ -n "$G_EXTRA" ] && APPEND="$APPEND $(echo "$G_EXTRA" | tr , ' ')"
 	# One benchmark, so the profile is of the thing being asked about.
 	PROFILE_CASE="$(sed -n 's/.*pvmtest\.profile_case=\([^ ]*\).*/\1/p' /proc/cmdline)"
 	[ "$MODE" = profile ] && APPEND="$APPEND pvmtest.only=${PROFILE_CASE:-perf/syscall}"
@@ -234,6 +232,10 @@ if [ "$SUITE" = perf ]; then
 else
 	APPEND="$APPEND earlyprintk=serial,ttyS0,115200"
 fi
+# Extra guest arguments, for every suite: pvmtest.only, pvmtest.statsmsr,
+# the guest's own kernel parameters.  Comma separated on L1's command line.
+G_EXTRA="$(sed -n 's/.*pvmtest\.guest_append=\([^ ]*\).*/\1/p' /proc/cmdline)"
+[ -n "$G_EXTRA" ] && APPEND="$APPEND $(echo "$G_EXTRA" | tr , ' ')"
 # Only a PVM run must have relocated itself; under kvm-intel the same
 # image is an ordinary guest and belongs at the usual address.
 [ "$VENDOR" = pvm ] && APPEND="$APPEND pvmtest.expect=pvm"

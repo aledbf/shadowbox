@@ -145,8 +145,10 @@ func New(suite, tag string) *Harness {
 	return &Harness{suite: suite, tag: tag}
 }
 
-// Only narrows the run to cases whose name contains sub.  A profile of
-// four benchmarks says less than a profile of the one being asked about.
+// Only narrows the run.  One value selects the cases whose name contains it,
+// within the suite -- or the case of exactly that name, in any suite.  Several
+// values separated by "|" select exactly the cases of those names, in any
+// suite: that is how tools/pvmtest runs a named list in one boot.
 func (h *Harness) Only(sub string) { h.only = sub }
 
 // scale multiplies the iteration count of the perf cases.  It exists for the
@@ -174,6 +176,14 @@ func (h *Harness) Add(c Case) {
 }
 
 func (h *Harness) selected(c Case) bool {
+	if strings.Contains(h.only, "|") {
+		for _, name := range strings.Split(h.only, "|") {
+			if c.Name == name {
+				return true
+			}
+		}
+		return false
+	}
 	if h.only != "" && !strings.Contains(c.Name, h.only) {
 		return false
 	}

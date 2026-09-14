@@ -1,0 +1,6 @@
+# The perf suite across vCPU counts, PVM and kvm-intel interleaved, medians of
+# five, compared against baselines/<this machine>.tsv.  A timing host build.
+#
+#   make battery B=perf-matrix            (make perf-baseline promotes it)
+
+matrix perf suite=perf vendor=pvm,intel cpus=1,2,4,8,16 reps=5 host=timing

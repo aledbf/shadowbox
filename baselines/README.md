@@ -2,9 +2,12 @@
 
 One TSV per machine, named after the L0 kernel release and the CPU model
 -- the environment the measurement was taken in, not the kernel being
-measured.  `scripts/perf-matrix.sh` compares a fresh sweep against the
-file matching the machine it is running on, and fails when a metric is
-more than `MATRIX_THRESHOLD` percent worse than the recorded median.
+measured.  `make perf-matrix` (batteries/perf-matrix.pvm, through
+tools/pvmtest) compares a fresh sweep against the file matching the machine
+it is running on, and fails when a PVM timing is more than `threshold`
+percent worse than the recorded median and outside the baseline's own
+range.  `pvmtest compare <matrix.tsv> <baseline.tsv>` does the same for any
+two files.
 
 Absolute thresholds are not useful here: the same tree is slower on a
 laptop and faster on a workstation, and neither is a regression.  What is

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -108,7 +109,9 @@ func registerDirectPF(h *harness.Harness) {
 				if rc != 0 {
 					failed++
 					if failed <= 5 {
-						t.Logf("run %d: rc=%d %s", i, rc, trim(out))
+						// The victim's own diagnosis is its last line.
+						lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+						t.Logf("run %d: rc=%d %s", i, rc, lines[len(lines)-1])
 					}
 				}
 			}

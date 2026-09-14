@@ -1,0 +1,15 @@
+# Correctness on paging this CPU does not have: L1 under QEMU TCG, 4-level
+# and 5-level.  Slow -- an hour or more.  Nothing measured here means
+# anything.
+#
+# Known TCG artefacts, not PVM: INVD/WBINVD do not fault at CPL3 under TCG,
+# time/monotonic is a 30 s loop that times out, and security/pkey-allowed
+# fails intermittently (0 of 200 on KVM; see docs/TUNING-LOG-v5.md).
+
+set cpus=1 allow-fail=time/monotonic,security/priv-insn/invd,security/priv-insn/wbinvd,security/pkey-allowed
+
+run la57-default      suite=default   l1=tcg-la57
+run la57-security     suite=security  l1=tcg-la57
+run la57-hosttests    suite=hosttests l1=tcg-la57
+run tcg4-default      suite=default   l1=tcg
+run tcg4-security     suite=security  l1=tcg

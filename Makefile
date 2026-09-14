@@ -14,14 +14,22 @@
 # make quick    regress + stage2, the shortest thing worth running
 # make check    everything a change has to pass before it is called done
 # make security negative tests -- on plain KVM and under PVM -- + sanitize
-# make failclosed  the cases where kvm-pvm must refuse to load
-# make pti         the same suites again, on a host booted with KPTI on
 # make hosttests   the KVM-API side: PVM MSRs, PVCS pinning, memslot churn,
 #                  plus a subset of the kernel's own KVM selftests
 # make sanitize scan every log kept under out/logs for kernel complaints
-# make soak     stage2 N times over, then sanitize the lot
-# make perf-matrix   perf across 1/2/8/16 vCPUs, both vendors, medians
 # make perf-baseline record the last matrix run as this machine's baseline
+#
+# make battery B=<name>   run batteries/<name>.pvm with tools/pvmtest:
+#   check        default/security/full/hosttests on both vendors, NMIs into
+#                the switcher, and the hosts kvm-pvm must refuse
+#   tcg          the same on emulated 4- and 5-level L1 (slow)
+#   perf-matrix  perf across vCPU counts, both vendors, vs the baseline
+#   direct-pf    PVM_FEATURE_DIRECT_PF off/on A/B
+#   fault-stats  counter deltas per fault case (stats host build)
+#   pkey-tcg     security/pkey-allowed repeated, KVM vs TCG
+#   soak         the default suite ten times
+# Results land in out/results/<battery>-<time>/.  pvmtest list <battery>
+# shows the boots without running them; see batteries/*.pvm for the keys.
 
 SHELL := /bin/bash
 S     := scripts
@@ -32,11 +40,9 @@ export KSRC
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \
         check-rootfs stage0 stage1 stage2 full perf mmu quick sanitize \
         host-sanitize-log security soak perf-matrix perf-baseline \
-        hosttests build-hosttests build-kvm-selftests failclosed pti exits \
-        check clean distclean
+        hosttests build-hosttests build-kvm-selftests failclosed exits \
+        check battery pvmtest clean distclean
 
-# How many times "make soak" repeats stage 2.
-SOAK ?= 10
 
 help:
 	@sed -n '2,/^$$/p' Makefile | grep '^#' | sed 's/^# \?//'
@@ -131,23 +137,19 @@ hosttests: host-kernel check-rootfs initrd guest-kernel build-hosttests build-kv
 	@$(S)/sanitize-log.sh
 
 # Refusing to load is a feature, and one that has to be checked by
-# creating the condition rather than by reading hardware_cap_check().
-failclosed: host-kernel check-rootfs initrd guest-kernel
-	@$(S)/run-failclosed.sh
+# creating the condition rather than by reading hardware_cap_check().  The
+# refuse-* items of the check battery.
+failclosed: pvmtest host-kernel check-rootfs initrd guest-kernel
+	@$(PVMTEST) run -only refuse-kpti,refuse-fsgsbase,refuse-pcid batteries/check.pvm
 
-# Host KPTI.  This machine reports "meltdown: Not affected", so PTI is off
-# by default and every other target here runs without it; pti=on is the
-# switch that makes X86_FEATURE_PTI true, and with it the root a guest runs
-# on stops mapping the host kernel.  Worth its own stage, because nothing
-# else in the tree exercises that.
-pti: host-kernel check-rootfs initrd guest-kernel
-	@echo "=== host KPTI: functional ==="
-	@L1_APPEND=pti=on LOG_SUFFIX=pti $(S)/run-l1.sh default pvm
-	@echo "=== host KPTI: negative tests ==="
-	@L1_APPEND=pti=on LOG_SUFFIX=pti $(S)/run-l1.sh security pvm
-	@echo "=== host KPTI: NMIs into the switcher's CPL0 window ==="
-	@L1_APPEND=pti=on LOG_SUFFIX=pti $(S)/run-l1.sh profile pvm
-	@$(S)/sanitize-log.sh
+# tools/pvmtest, the runner every battery goes through.
+PVMTEST := out/bin/pvmtest
+pvmtest:
+	@cd tools/pvmtest && go build -o ../../$(PVMTEST) .
+
+battery: pvmtest check-rootfs
+	@test -n "$(B)" || { echo "make battery B=<name>; see batteries/" >&2; exit 1; }
+	@$(PVMTEST) run batteries/$(B).pvm
 
 security: guest-kernel initrd host-kernel check-rootfs
 	@echo "=== negative tests: plain KVM, one layer ==="
@@ -171,23 +173,20 @@ quick: regress stage2
 # That happened.  The isolation cases are in the default suite now so
 # stage2 alone would have caught that one, but the rest of the security
 # suite, the fail-closed cases and the selftests still only run here.
-check: regress stage2 hosttests security failclosed pti
-	@echo "==> check: stage2, hosttests, security, failclosed and pti all passed"
+check: regress pvmtest host-kernel check-rootfs initrd guest-kernel build-hosttests build-kvm-selftests
+	@$(PVMTEST) run batteries/check.pvm
+	@echo "==> check: regress and batteries/check.pvm passed"
 
 # Repetition is what finds the once-in-thirty WARN.  Each iteration keeps
 # its own log so the sanitizer at the end has all of them, and a failure
 # stops the loop rather than being averaged away.
-soak: host-kernel check-rootfs initrd guest-kernel
-	@set -e; for i in $$(seq 1 $(SOAK)); do \
-		echo "=== soak $$i/$(SOAK) ==="; \
-		LOG_SUFFIX=soak$$i $(S)/run-l1.sh default pvm; \
-	done
-	@$(S)/sanitize-log.sh
+soak: pvmtest host-kernel check-rootfs initrd guest-kernel
+	@$(PVMTEST) run batteries/soak.pvm
 
-# The full default sweep is 40 boots of the perf suite.  Narrow it while
-# iterating:  make perf-matrix MATRIX_CPUS="2" MATRIX_REPS=2
-perf-matrix: guest-kernel initrd host-kernel check-rootfs
-	@$(S)/perf-matrix.sh
+# The full default sweep is 50 boots of the perf suite; edit a copy of
+# batteries/perf-matrix.pvm to narrow it while iterating.
+perf-matrix: pvmtest guest-kernel initrd host-kernel check-rootfs
+	@$(PVMTEST) run batteries/perf-matrix.pvm
 
 # Promote the most recent sweep on this machine to its baseline.
 perf-baseline:

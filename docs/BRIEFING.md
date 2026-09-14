@@ -291,8 +291,13 @@ Every one of these cost real time at least once.
   metric line once and produced a plausible wrong ratio (`0.00x`);
   `scripts/compare-perf.sh` now fails loudly instead.
 - **Use `make perf-baseline` and compare against the recorded baseline**, not
-  against a number in a chat log. `scripts/perf-matrix.sh` takes medians over
+  against a number in a chat log. `make perf-matrix` takes medians over
   reps; single runs on this machine drift by tens of percent.
+- **Run things through a battery** (`batteries/*.pvm`, `make battery B=...`,
+  `tools/pvmtest`), not a shell loop written for the occasion: it checks the
+  host build the item needs, keeps every log with a manifest under
+  `out/results/`, applies the known-failure lists, and reduces matrices and
+  A/B runs the same way every time.
 - **`pr_info` from the module does not reach L1's live console during a guest
   run; `pr_emerg` does.** A whole wrong conclusion — "`pvm_vcpu_run` is never
   called" — came from that.
