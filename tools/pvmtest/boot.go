@@ -25,7 +25,7 @@ import (
 // that is how a measurement got taken against a module that did not contain
 // the change being measured.
 type L1Opts struct {
-	Suite   string   // pvmtest.suite; "profile", "lock", "mmu", "hosttests", "failclosed" are agent modes
+	Suite   string   // pvmtest.suite; "profile", "lock", "mmu", "hosttests", "kut", "failclosed" are agent modes
 	Vendor  string   // pvm or intel: which KVM vendor L1 loads
 	Guest   []string // extra guest arguments (pvmtest.guest_append)
 	Mod     []string // vendor module arguments
@@ -78,6 +78,10 @@ func stagePayload(c Config, dir string) error {
 	// twenty-odd minutes, which is a long time to wait when the question is
 	// about one of them.
 	if err := copyTree(filepath.Join(c.Out, "kvm-selftests"), filepath.Join(dir, "kvm-selftests"), os.Getenv("SELFTESTS")); err != nil {
+		return err
+	}
+	// kvm-unit-tests (suite kut), when built.
+	if err := copyTree(filepath.Join(c.Out, "kut"), filepath.Join(dir, "kut"), ""); err != nil {
 		return err
 	}
 	// The KVM modules travel with the payload rather than in the image: the
@@ -220,7 +224,7 @@ func BootL1(c Config, o L1Opts) (string, error) {
 	if o.Timeout == 0 {
 		o.Timeout = time.Duration(3*c.BootTimeout) * time.Second
 		switch o.Suite {
-		case "full", "perf", "all", "profile", "lock", "mmu":
+		case "full", "perf", "all", "profile", "lock", "mmu", "kut":
 			o.Timeout = 2400 * time.Second
 		}
 	}

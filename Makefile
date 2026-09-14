@@ -22,6 +22,7 @@
 #   make exits CASE=   exits attributed to one case
 #   make failclosed    the hosts kvm-pvm must refuse
 #   make soak          the default suite ten times
+#   make kut-build     kvm-unit-tests (KUT_GIT, KUT_REV) for batteries/kut.pvm
 #   make sanitize      scan every log under out/logs
 #   make battery B=<name> [J=<jobs>]   any batteries/<name>.pvm
 
@@ -33,7 +34,7 @@ export KSRC
 
 .PHONY: all help deps pvmtest kernels guest-kernel host-kernel initrd agent \
         hosttests selftests rootfs regress stage0 stage1 stage2 full check \
-        perf perf-matrix perf-baseline mmu exits failclosed soak sanitize \
+        perf perf-matrix perf-baseline mmu exits failclosed soak kut-build sanitize \
         battery clean distclean
 
 help:
@@ -113,6 +114,9 @@ failclosed: pvmtest
 
 soak: pvmtest
 	@$(PVMTEST) run batteries/soak.pvm
+
+kut-build: pvmtest
+	@$(PVMTEST) build kut
 
 sanitize: pvmtest
 	@$(PVMTEST) sanitize

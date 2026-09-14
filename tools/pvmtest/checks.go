@@ -182,7 +182,14 @@ func collapse(lines []string) []group {
 // are reported.  A test that is listed but never ran is as much of a problem:
 // it means the build or the payload dropped it.
 func CheckSelftests(c Config, logPath, vendor string) error {
-	expect, err := readList(filepath.Join(c.Testbed, "configs", "kvm-selftests-expect.txt"))
+	return checkExpected(filepath.Join(c.Testbed, "configs", "kvm-selftests-expect.txt"), logPath, "SELFTEST: ", vendor)
+}
+
+// checkExpected holds the "<prefix><name> <verdict>" lines of a log to the
+// rows of an expectation file whose second column is key.
+func checkExpected(expectPath, logPath, prefix, key string) error {
+	expectName := filepath.Base(expectPath)
+	expect, err := readList(expectPath)
 	if err != nil {
 		return err
 	}
@@ -190,7 +197,7 @@ func CheckSelftests(c Config, logPath, vendor string) error {
 	var order []string
 	for _, l := range expect {
 		f := strings.Fields(l)
-		if len(f) >= 3 && f[1] == vendor {
+		if len(f) >= 3 && f[1] == key {
 			want[f[0]] = f[2]
 			order = append(order, f[0])
 		}
@@ -202,22 +209,22 @@ func CheckSelftests(c Config, logPath, vendor string) error {
 	seen := map[string]bool{}
 	fails := 0
 	for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r", ""), "\n") {
-		if !strings.HasPrefix(line, "SELFTEST: ") {
+		if !strings.HasPrefix(line, prefix) {
 			continue
 		}
-		f := strings.Fields(line)
-		if len(f) < 3 {
+		f := strings.Fields(strings.TrimPrefix(line, prefix))
+		if len(f) < 2 {
 			continue
 		}
-		name, verdict := f[1], f[2]
+		name, verdict := f[0], f[1]
 		seen[name] = true
 		w, ok := want[name]
 		switch {
 		case !ok:
-			warnf("%s: no expectation recorded for vendor=%s (got %s)", name, vendor, verdict)
+			warnf("%s: no expectation recorded for %s (got %s)", name, key, verdict)
 			fails++
 		case verdict != w && (w == "fail" || w == "skip"):
-			fmt.Fprintf(os.Stderr, "\033[1;33mCHANGED\033[0m %-34s %s -> %s  (a gap may have closed; update configs/kvm-selftests-expect.txt)\n", name, w, verdict)
+			fmt.Fprintf(os.Stderr, "\033[1;33mCHANGED\033[0m %-34s %s -> %s  (a gap may have closed; update configs/%s)\n", name, w, verdict, expectName)
 			fails++
 		case verdict != w:
 			fmt.Fprintf(os.Stderr, "\033[1;31mREGRESSED\033[0m %-32s %s -> %s\n", name, w, verdict)
@@ -225,17 +232,17 @@ func CheckSelftests(c Config, logPath, vendor string) error {
 		}
 	}
 	if len(seen) == 0 {
-		return fmt.Errorf("the log has no SELFTEST: lines at all")
+		return fmt.Errorf("the log has no %s lines at all", strings.TrimSpace(prefix))
 	}
 	for _, name := range order {
 		if !seen[name] {
-			warnf("%s is expected for vendor=%s but did not run", name, vendor)
+			warnf("%s is expected for %s but did not run", name, key)
 			fails++
 		}
 	}
 	if fails > 0 {
-		return fmt.Errorf("check-selftests: results differ from configs/kvm-selftests-expect.txt")
+		return fmt.Errorf("results differ from configs/%s", expectName)
 	}
-	logf("selftests (%s): %d tests, all as recorded", vendor, len(seen))
+	logf("%s (%s): %d tests, all as recorded", strings.TrimSuffix(prefix, ": "), key, len(seen))
 	return nil
 }

@@ -1,0 +1,18 @@
+# kvm-unit-tests on the kernel without the PVM series and on the kernel with
+# it, under kvm-intel with EPT and with shadow paging (kvm_intel ept=0).  The
+# series changes the shadow MMU, the emulator and vcpu_enter_guest() for every
+# KVM user; all four boots must match configs/kut-expect.txt, which is keyed
+# on ept/shadow and not on the kernel.  Correctness only: -j is fine.
+#
+#   make kut-build
+#   KERNEL_GIT=<linux tree> make battery B=kut J=2
+
+kernel kvm git=${KERNEL_GIT} rev=${KVM_REV:-master}
+kernel pvm git=${KERNEL_GIT} rev=${PVM_REV:-pvm-7.3-series}
+
+set suite=kut vendor=intel
+
+run upstream-ept     kernel=kvm
+run upstream-shadow  kernel=kvm mod=ept=0
+run series-ept       kernel=pvm
+run series-shadow    kernel=pvm mod=ept=0

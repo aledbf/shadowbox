@@ -96,6 +96,7 @@ const (
 	modeLock      = "lock"
 	modeMMU       = "mmu"
 	modeHosttests = "hosttests"
+	modeKUT       = "kut"
 )
 
 // ResolveMode maps pvmtest.suite to the agent's mode and the suite the
@@ -126,6 +127,10 @@ func ResolveMode(suite string) (mode, guestSuite string) {
 		// pinning: the guest-side suite runs at guest CPL3 and cannot
 		// touch either.
 		return modeHosttests, suite
+	case "kut":
+		// No guest of ours either: kvm-unit-tests under whichever vendor
+		// was loaded, which for them is kvm-intel.
+		return modeKUT, suite
 	}
 	return modeRun, suite
 }
@@ -350,4 +355,100 @@ func lockContentionArgv(extra ...string) []string {
 
 func kvmStatReportArgv(data string) []string {
 	return []string{perfPath, "kvm", "-i", data, "stat", "report", "--stdio"}
+}
+
+// KUTTest is one line of the staged kut/tests.txt: name, flat file, smp,
+// timeout seconds, check, qemu arguments.
+type KUTTest struct {
+	Name, File, Smp, Timeout, Check string
+	Args                            []string
+}
+
+// ParseKUTManifest reads kut/tests.txt.
+func ParseKUTManifest(b []byte) []KUTTest {
+	var out []KUTTest
+	for _, l := range strings.Split(string(b), "\n") {
+		if l == "" || strings.HasPrefix(l, "#") {
+			continue
+		}
+		f := strings.SplitN(l, "\t", 6)
+		if len(f) < 6 {
+			continue
+		}
+		out = append(out, KUTTest{Name: f[0], File: f[1], Smp: f[2], Timeout: f[3], Check: f[4], Args: SplitQuoted(f[5])})
+	}
+	return out
+}
+
+// SplitQuoted splits words the way unittests.cfg values are written: blanks
+// separate, and single or double quotes group without being kept.
+func SplitQuoted(s string) []string {
+	var out []string
+	var cur strings.Builder
+	in, quote, word := false, byte(0), false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		switch {
+		case in && ch == quote:
+			in = false
+		case in:
+			cur.WriteByte(ch)
+		case ch == '\'' || ch == '"':
+			in, quote, word = true, ch, true
+		case ch == ' ' || ch == '\t':
+			if word {
+				out = append(out, cur.String())
+				cur.Reset()
+				word = false
+			}
+		default:
+			cur.WriteByte(ch)
+			word = true
+		}
+	}
+	if word {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+// KUTCheck is unittests.cfg's "check": every <path>=<value> must hold.  It
+// returns the first one that does not, or "".
+func KUTCheck(check string, read func(string) (string, error)) string {
+	for _, c := range strings.Fields(check) {
+		path, value, _ := strings.Cut(c, "=")
+		got, err := read(path)
+		if err != nil || strings.TrimSpace(got) != value {
+			return c
+		}
+	}
+	return ""
+}
+
+// KUTArgv is x86/run's qemu command line for one test, under its bound.
+func KUTArgv(dir string, t KUTTest) []string {
+	argv := []string{"timeout", "-k", "5", t.Timeout, "qemu-system-x86_64",
+		"--no-reboot", "-nodefaults", "-global", "kvm-pit.lost_tick_policy=discard",
+		"-device", "pc-testdev", "-device", "isa-debug-exit,iobase=0xf4,iosize=0x4",
+		"-display", "none", "-serial", "stdio", "-device", "pci-testdev",
+		"-machine", "accel=kvm", "-kernel", dir + "/" + t.File, "-smp", t.Smp}
+	return append(argv, t.Args...)
+}
+
+// KUTVerdict classifies qemu's status.  A test ends by writing its status to
+// isa-debug-exit, which exits qemu with (status << 1) | 1: 0 pass, 1 fail,
+// and 77 >> 1 for skip, so that qemu's status is autotools' 77.  Anything
+// else never reached the end.
+func KUTVerdict(rc int) string {
+	switch rc {
+	case 1:
+		return "pass"
+	case 77:
+		return "skip"
+	case 3:
+		return "fail"
+	case 124, 137:
+		return "timeout"
+	}
+	return "error"
 }

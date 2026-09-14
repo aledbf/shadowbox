@@ -135,6 +135,9 @@ func runAgent() int {
 	if a.mode == modeHosttests {
 		a.hostTests()
 	}
+	if a.mode == modeKUT {
+		a.kutTests()
+	}
 
 	say("qemu: " + a.qemuVersion())
 	streamPrefixed([]string{"ls", "-l", payload}, stderrConsole, "L1: payload: ", -1)
@@ -333,6 +336,66 @@ func (a *agent) hostTests() {
 	prefixStream(os.Stdout, "L1: dmesg: ", bytes.NewReader(tailBytes(dmesg(), 60)), -1)
 	poweroff()
 	// As in the bash, a poweroff that returns falls through to the guest.
+}
+
+// kutTests is suite=kut: kvm-unit-tests against the loaded vendor module,
+// one qemu each.  Each outcome is reported by name and judged outside,
+// against configs/kut-expect.txt.
+func (a *agent) kutTests() {
+	dir := payload + "/kut"
+	b, err := os.ReadFile(dir + "/tests.txt")
+	tests := ParseKUTManifest(b)
+	if err != nil || len(tests) == 0 {
+		say("no kvm-unit-tests in the payload")
+		echo("PVMTEST-RESULT: fail stage=kut reason=no-tests")
+		poweroff()
+		return
+	}
+	for _, p := range []string{"ept", "unrestricted_guest", "enable_shadow_vmcs"} {
+		v, err := os.ReadFile("/sys/module/kvm_intel/parameters/" + p)
+		if err == nil {
+			say("kvm_intel " + p + ": " + stripNewlines(string(v)))
+		}
+	}
+	read := func(p string) (string, error) {
+		v, err := os.ReadFile(p)
+		return string(v), err
+	}
+	for _, t := range tests {
+		if c := KUTCheck(t.Check, read); c != "" {
+			echo("KUT: " + t.Name + " skip rc=0 check=" + c)
+			continue
+		}
+		r := 1
+		if f, err := os.OpenFile("/tmp/kut.log", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o666); err != nil {
+			shErr("/tmp/kut.log: " + errText(err))
+		} else {
+			r = run(KUTArgv(dir, t), nil, f, f)
+			f.Close()
+		}
+		log, _ := os.ReadFile("/tmp/kut.log")
+		verdict := KUTVerdict(r)
+		summary := ""
+		for _, l := range splitLines(log) {
+			if strings.HasPrefix(l, "SUMMARY: ") {
+				summary = " " + strings.TrimPrefix(l, "SUMMARY: ")
+			}
+		}
+		echo("KUT: " + t.Name + " " + verdict + " rc=" + strconv.Itoa(r) + summary)
+		if verdict != "pass" && verdict != "skip" {
+			// The FAIL lines say which subtests; the tail says where it
+			// stopped when it never reached a summary.
+			for _, l := range splitLines(log) {
+				if strings.HasPrefix(l, "FAIL: ") {
+					echo("K[" + t.Name + "]: " + l)
+				}
+			}
+			prefixStream(os.Stdout, "K["+t.Name+"]: ", bytes.NewReader(tailBytes(log, 10)), -1)
+		}
+	}
+	echo("PVMTEST-RESULT: ok stage=kut")
+	prefixStream(os.Stdout, "L1: dmesg: ", bytes.NewReader(tailBytes(dmesg(), 40)), -1)
+	poweroff()
 }
 
 // globAll is the list "dir/*" expands to: no dot files, sorted by bytes (C

@@ -16,10 +16,10 @@ func (l *listFlag) Set(v string) error {
 	return nil
 }
 
-// cmdBuild: pvmtest build guest|host|initrd|rootfs|hosttests|agent|selftests|ref|all
+// cmdBuild: pvmtest build guest|host|initrd|rootfs|hosttests|agent|selftests|kut|ref|all
 func cmdBuild(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("pvmtest build guest|host [-stats] [-extra CONFIG_X=y]|initrd|rootfs|hosttests|agent|selftests|ref <name> <git> <rev> [timing|stats]|all")
+		return fmt.Errorf("pvmtest build guest|host [-stats] [-extra CONFIG_X=y]|initrd|rootfs|hosttests|agent|selftests|kut|ref <name> <git> <rev> [timing|stats]|all")
 	}
 	c := LoadConfig()
 	what := args[0]
@@ -44,6 +44,8 @@ func cmdBuild(args []string) error {
 		return BuildAgent(c)
 	case "selftests":
 		return BuildSelftests(c)
+	case "kut":
+		return BuildKUT(c)
 	case "ref":
 		a := fs.Args()
 		if len(a) < 3 {

@@ -1,0 +1,86 @@
+# Outcome of each kvm-unit-test in L1 under kvm-intel, per configuration:
+# ept (EPT on) or shadow (kvm_intel ept=0).  Keyed on the configuration and
+# not on the kernel: the kernel with the PVM series must match the one
+# without it.  name  config  pass|fail|skip|timeout|error  note
+access                    ept     pass
+access                    shadow  pass
+rmap_chain                ept     pass
+rmap_chain                shadow  pass
+memory                    ept     pass
+memory                    shadow  pass
+pku                       ept     pass
+pku                       shadow  skip  kvm-intel hides PKU without EPT
+pks                       ept     skip  no PKS on this CPU
+pks                       shadow  skip  no PKS on this CPU
+smap                      ept     pass
+smap                      shadow  pass
+pcid-enabled              ept     pass
+pcid-enabled              shadow  pass
+pcid-disabled             ept     pass
+pcid-disabled             shadow  pass
+pcid-asymmetric           ept     pass
+pcid-asymmetric           shadow  pass
+umip                      ept     pass
+umip                      shadow  pass
+la57                      ept     pass
+la57                      shadow  pass
+emulator                  ept     pass
+emulator                  shadow  pass
+realmode                  ept     pass
+realmode                  shadow  pass
+eventinj                  ept     pass
+eventinj                  shadow  pass
+idt_test                  ept     pass
+idt_test                  shadow  pass
+debug                     ept     pass
+debug                     shadow  pass
+syscall                   ept     pass
+syscall                   shadow  pass
+hypercall                 ept     pass
+hypercall                 shadow  pass
+msr                       ept     pass
+msr                       shadow  pass
+msr64                     ept     pass
+msr64                     shadow  pass
+xsave                     ept     pass
+xsave                     shadow  pass
+tsc                       ept     pass
+tsc                       shadow  pass
+tsc_adjust                ept     pass
+tsc_adjust                shadow  pass
+x2apic                    ept     pass
+x2apic                    shadow  pass
+xapic                     ept     pass
+xapic                     shadow  pass
+ioapic                    ept     pass
+ioapic                    shadow  pass
+smptest                   ept     pass
+smptest                   shadow  pass
+smptest3                  ept     pass
+smptest3                  shadow  pass
+vmexit_cpuid              ept     pass
+vmexit_cpuid              shadow  pass
+vmexit_vmcall             ept     pass
+vmexit_vmcall             shadow  pass
+vmexit_mov_from_cr8       ept     pass
+vmexit_mov_from_cr8       shadow  pass
+vmexit_mov_to_cr8         ept     pass
+vmexit_mov_to_cr8         shadow  pass
+vmexit_inl_pmtimer        ept     pass
+vmexit_inl_pmtimer        shadow  pass
+vmexit_ipi                ept     pass
+vmexit_ipi                shadow  pass
+vmexit_ipi_halt           ept     pass
+vmexit_ipi_halt           shadow  pass
+vmexit_tscdeadline        ept     pass
+vmexit_tscdeadline        shadow  pass
+vmexit_tscdeadline_immed  ept     pass
+vmexit_tscdeadline_immed  shadow  pass
+vmexit_cr0_wp             ept     pass
+vmexit_cr0_wp             shadow  pass
+vmexit_cr4_pge            ept     pass
+vmexit_cr4_pge            shadow  pass
+setjmp                    ept     pass
+setjmp                    shadow  pass
+sieve                     ept     pass
+sieve                     shadow  pass

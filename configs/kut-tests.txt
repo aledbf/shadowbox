@@ -1,0 +1,68 @@
+# Which kvm-unit-tests to run in L1 (suite kut), by their name in
+# x86/unittests.cfg.  Blank lines and '#' comments ignored.
+#
+# They run under kvm-intel, never under kvm-pvm: their guests are bare CPL0
+# programs that take exceptions on purpose, which a PVM VM delivers only to
+# a PVM-aware guest.  What they check is the code the PVM series changes for
+# every KVM user.  batteries/kut.pvm runs them on kernels with and without
+# the series, with EPT and with shadow paging (kvm_intel ept=0), and both
+# must match configs/kut-expect.txt.
+#
+# Left out: svm*, vmx*, ept* (a nested hypervisor inside L1, which is itself
+# nested), hyperv_*, pmu* and intel_iommu (nothing the series touches),
+# kvmclock_test (needs shell expansion), and the i386-only and nodefault
+# entries.
+
+# The shadow MMU's permission logic: every U/W/NX/SMEP/SMAP combination.
+# The series forces USER into SPTEs, emulates SMEP with NX and carries the
+# protection key into the SPTE, under globals that must stay zero here.
+# kvm-intel hides PKU without EPT, so the protection-key half of that is
+# reachable only from kvm-pvm; pku runs with EPT alone.
+access
+rmap_chain
+memory
+
+# Protection keys, SMAP, PCID, UMIP, LA57: CR4 bits whose MMU role changes
+# the series' shadow hooks look at.
+pku
+pks
+smap
+pcid-enabled
+pcid-disabled
+pcid-asymmetric
+umip
+la57
+
+# The emulator, which the series teaches RDPKRU and WRPKRU.
+emulator
+realmode
+
+# Entry, events and exits: vcpu_enter_guest() and what feeds it.
+eventinj
+idt_test
+debug
+syscall
+hypercall
+msr
+msr64
+xsave
+tsc
+tsc_adjust
+x2apic
+xapic
+ioapic
+smptest
+smptest3
+vmexit_cpuid
+vmexit_vmcall
+vmexit_mov_from_cr8
+vmexit_mov_to_cr8
+vmexit_inl_pmtimer
+vmexit_ipi
+vmexit_ipi_halt
+vmexit_tscdeadline
+vmexit_tscdeadline_immed
+vmexit_cr0_wp
+vmexit_cr4_pge
+setjmp
+sieve

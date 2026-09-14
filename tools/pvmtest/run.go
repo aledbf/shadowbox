@@ -203,7 +203,7 @@ func judge(b Boot, o *Outcome, logText string, exitCode int, checks []string) (s
 	if o.HostFail > 0 {
 		return "FAIL", fmt.Sprintf("%d host test(s) failed", o.HostFail)
 	}
-	if len(o.Passed) == 0 && o.HostPass == 0 && o.Selftests == 0 && len(o.Metrics) == 0 {
+	if len(o.Passed) == 0 && o.HostPass == 0 && o.Selftests == 0 && o.KUT == 0 && len(o.Metrics) == 0 {
 		return "FAIL", fmt.Sprintf("no results in the log (run-l1 exit %d)", exitCode)
 	}
 	if len(checks) > 0 {
@@ -212,6 +212,9 @@ func judge(b Boot, o *Outcome, logText string, exitCode int, checks []string) (s
 	why := fmt.Sprintf("%d passed", len(o.Passed)+o.HostPass)
 	if o.Selftests > 0 {
 		why += fmt.Sprintf(", %d selftests as expected", o.Selftests)
+	}
+	if o.KUT > 0 {
+		why = fmt.Sprintf("%d kvm-unit-tests as expected (%s, %s)", o.KUT, kutConfig(it), kutSummary(logText))
 	}
 	if len(o.Failed) > 0 {
 		why += fmt.Sprintf(", %d allowed failure(s): %s", len(o.Failed), strings.Join(o.Failed, " "))
@@ -228,9 +231,14 @@ func (e *Env) logChecks(b Boot, log string) []string {
 	if err := Sanitize(e.Config, []string{log}, true); err != nil {
 		fails = append(fails, "sanitize: "+err.Error())
 	}
-	if b.Item.Get("suite", "") == "hosttests" {
+	switch b.Item.Get("suite", "") {
+	case "hosttests":
 		if err := CheckSelftests(e.Config, log, b.Vendor); err != nil {
 			fails = append(fails, "selftests: "+err.Error())
+		}
+	case "kut":
+		if err := CheckKUT(e.Config, log, kutConfig(b.Item)); err != nil {
+			fails = append(fails, "kvm-unit-tests: "+err.Error())
 		}
 	}
 	return fails

@@ -214,3 +214,27 @@ func TestSelftests(t *testing.T) {
 		}
 	}
 }
+
+func TestKUT(t *testing.T) {
+	got := SplitQuoted(`-cpu max -append 'a b' "c"`)
+	want := []string{"-cpu", "max", "-append", "a b", "c"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("%q", got)
+	}
+	m := ParseKUTManifest([]byte("# x\nx2apic\tvmexit.flat\t2\t90\t\t-append 'toggle_cr4_pge'\n"))
+	if len(m) != 1 || m[0].Smp != "2" || strings.Join(m[0].Args, "|") != "-append|toggle_cr4_pge" {
+		t.Fatalf("%+v", m)
+	}
+	for rc, v := range map[int]string{1: "pass", 3: "fail", 77: "skip", 124: "timeout", 0: "error"} {
+		if KUTVerdict(rc) != v {
+			t.Fatalf("rc %d: %s", rc, KUTVerdict(rc))
+		}
+	}
+	read := func(p string) (string, error) { return map[string]string{"/e": "N\n"}[p], nil }
+	if c := KUTCheck("/e=N", read); c != "" {
+		t.Fatal(c)
+	}
+	if c := KUTCheck("/e=Y", read); c != "/e=Y" {
+		t.Fatal(c)
+	}
+}

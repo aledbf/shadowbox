@@ -529,7 +529,7 @@ func BuildRef(c Config, name, gitDir, rev, variant string) error {
 		}
 	}
 	// What every set shares with the testbed's own.
-	for _, f := range []string{"images/l1-rootfs.ext4", "images/initrd.cpio.gz", "hosttests", "kvm-selftests", "l1agent"} {
+	for _, f := range []string{"images/l1-rootfs.ext4", "images/initrd.cpio.gz", "hosttests", "kvm-selftests", "kut", "l1agent"} {
 		from := filepath.Join(c.Out, f)
 		if !fileExists(from) {
 			continue

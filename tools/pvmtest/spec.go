@@ -29,7 +29,7 @@ import (
 //
 // Keys (a value runs to the next space; lists are comma separated):
 //
-//	suite       smoke|default|full|security|perf|hosttests|profile|failclosed
+//	suite       smoke|default|full|security|perf|hosttests|kut|profile|failclosed
 //	cases       exact case names, one boot for all of them
 //	vendor      pvm|intel, or a list
 //	cpus        guest vCPU counts, one boot each

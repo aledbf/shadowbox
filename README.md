@@ -170,7 +170,10 @@ Both vendors are run, because a selftest that behaves identically under
 
 ## What is not covered
 
-There are still no kvm-unit-tests.
+kvm-unit-tests run under kvm-intel only (`batteries/kut.pvm`): their guests
+take exceptions at CPL0 that only a PVM-aware guest can receive. They check
+that the series leaves the shadow MMU, the emulator and guest entry intact for
+every other KVM user.
 
 `batteries/check.pvm` (`make check`) includes the `security` suite, which checks that a guest user process cannot reach guest kernel
 memory or the host's window, but the security argument as a whole wants
