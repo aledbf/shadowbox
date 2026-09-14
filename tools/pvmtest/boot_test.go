@@ -36,7 +36,7 @@ func TestL1OptsFromItem(t *testing.T) {
 	if strings.Join(o.Guest, ",") != "pvmtest.only=a|b,pvmtest.statsmsr=0x4b564d2f,g=1" {
 		t.Errorf("guest: %v", o.Guest)
 	}
-	if o.Accel != "tcg" || o.CPU != "max,la57=on" || strings.Join(o.L1Args, " ") != "pti=on pvmtest.guest_timeout=15000" {
+	if o.Accel != "tcg" || o.CPU != "max,+pcid,+invpcid,la57=on" || strings.Join(o.L1Args, " ") != "pti=on pvmtest.guest_timeout=15000" {
 		t.Errorf("l1: %+v", o)
 	}
 	if o.CPUs != "1" || strings.Join(o.Mod, ",") != "m=2" {
