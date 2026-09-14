@@ -76,6 +76,53 @@ static void test_vcpu_struct(struct vm *v)
 	set_msr(v, MSR_PVM_VCPU_STRUCT, PVCS_GPA);
 }
 
+/* --- MSR_PVM_FEATURES_ENABLED ------------------------------------------ */
+
+/*
+ * Support is the hypervisor's to state and acceptance the guest's: the MSR
+ * starts at zero whatever PVM_CPUID_FEATURES says, takes exactly the
+ * advertised bits, and refuses the rest.  Run on a vCPU nothing has written
+ * yet, which is the only way to see the reset value.
+ */
+static void test_features_enabled(struct vm *v)
+{
+	uint64_t back = ~0ULL;
+
+	current_case = "pvm/features-enabled/reset-zero";
+	if (get_msr(v, MSR_PVM_FEATURES_ENABLED, &back) != 1)
+		nok("MSR_PVM_FEATURES_ENABLED cannot be read");
+	else if (back)
+		nok("a new vCPU has features enabled: %#llx", (unsigned long long)back);
+	else
+		ok("zero");
+
+	current_case = "pvm/features-enabled/direct-pf";
+	if (set_msr(v, MSR_PVM_FEATURES_ENABLED, PVM_FEATURE_DIRECT_PF) <= 0)
+		nok("enabling PVM_FEATURE_DIRECT_PF was refused");
+	else if (get_msr(v, MSR_PVM_FEATURES_ENABLED, &back) != 1 ||
+		 back != PVM_FEATURE_DIRECT_PF)
+		nok("read back %#llx", (unsigned long long)back);
+	else
+		ok("enabled");
+
+	current_case = "pvm/features-enabled/unsupported-refused";
+	if (set_msr(v, MSR_PVM_FEATURES_ENABLED, PVM_FEATURE_DIRECT_PF << 1) > 0)
+		nok("a feature bit the hypervisor does not advertise was accepted");
+	else if (get_msr(v, MSR_PVM_FEATURES_ENABLED, &back) != 1 ||
+		 back != PVM_FEATURE_DIRECT_PF)
+		nok("the refused write changed the MSR to %#llx", (unsigned long long)back);
+	else
+		ok("refused, value kept");
+
+	current_case = "pvm/features-enabled/disable";
+	if (set_msr(v, MSR_PVM_FEATURES_ENABLED, 0) <= 0)
+		nok("writing zero was refused");
+	else if (get_msr(v, MSR_PVM_FEATURES_ENABLED, &back) != 1 || back)
+		nok("read back %#llx after writing zero", (unsigned long long)back);
+	else
+		ok("disabled");
+}
+
 /* --- MSR_PVM_EVENT_ENTRY ---------------------------------------------- */
 
 static void test_event_entry(struct vm *v)
@@ -678,6 +725,7 @@ int main(void)
 
 	vm_setup(&v);
 
+	test_features_enabled(&v);
 	test_vcpu_struct(&v);
 	test_event_entry(&v);
 	test_msr_window(&v);

@@ -22,6 +22,7 @@ func Register(h *harness.Harness) {
 	registerPVM(h)
 	registerMM(h)
 	registerFaultRace(h)
+	registerDirectPF(h)
 	registerSyscall(h)
 	registerSignal(h)
 	registerSched(h)
@@ -56,6 +57,10 @@ func RunVictim(args []string) {
 		victimReadAddr(args[1])
 	case "victim-pkey":
 		victimPkey(args[1])
+	case "victim-forktouch":
+		victimForkTouch()
+	case "victim-rowrite":
+		victimRoWrite()
 	case "victim-pingpong":
 		victimPingPong(args[1])
 	default:

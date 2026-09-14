@@ -69,6 +69,8 @@
 #define PVCS_EVENT_VEC	offsetof(struct pvm_vcpu_struct, event_vector)
 #define PVCS_EFLAGS	offsetof(struct pvm_vcpu_struct, eflags)
 #define PVCS_RIP	offsetof(struct pvm_vcpu_struct, rip)
+#define PVCS_CR2	offsetof(struct pvm_vcpu_struct, cr2)
+#define PVCS_ERRCODE	offsetof(struct pvm_vcpu_struct, event_errcode)
 
 /* Guest physical layout, all offsets from GUEST_PHYS_BASE. */
 #define O_PML4		0x0000
@@ -271,6 +273,85 @@ static void build_umod_code(struct guest *g)
 }
 
 /*
+ * A second user-mode routine, at UVA_CODE + UCODE_FAULT: read a byte from
+ * FAULT_VA, which has no guest PTE.  The #PF goes to the user event handler,
+ * which reports it and spins.
+ */
+#define UCODE_FAULT	0x100
+#define FAULT_VA	(UVA_BASE + 0x3000)
+
+static void build_umod_fault_code(struct guest *g)
+{
+	struct asmbuf a = { g->mem + O_UCODE + UCODE_FAULT, UVA_CODE + UCODE_FAULT };
+
+	emit_movabs(&a, GPR_RDX, FAULT_VA + 0x123);
+	EMIT(&a, 0x8a, 0x02);				/* mov (%rdx),%al */
+	EMIT(&a, 0x0f, 0x0b);				/* ud2 */
+}
+
+/*
+ * A third, at UVA_CODE + UCODE_PATTERN, for the repeat rule: each time it is
+ * entered it takes the next address from a list on the user stack page and
+ * reads it; when the list is used up it reports the count.  With the event
+ * entry pointed at the supervisor code, every #PF comes straight back here,
+ * so the faults happen in exactly the order of the list and nothing ever
+ * maps the addresses.
+ */
+#define UCODE_PATTERN	0x200
+#define PATTERN_OFF	0x100		/* on the user stack page: count, then VAs */
+#define PATTERN_UVA	(UVA_BASE + 0x1000 + PATTERN_OFF)
+#define PATTERN_MAX	12		/* the total at +104 stays a disp8 */
+
+static void build_umod_pattern_code(struct guest *g)
+{
+	struct asmbuf a = { g->mem + O_UCODE + UCODE_PATTERN, UVA_CODE + UCODE_PATTERN };
+	uint8_t cmp[4] = { 0x48, 0x3b, 0x4e, 0x00 };
+
+	emit_movabs(&a, GPR_RSI, PATTERN_UVA);
+	EMIT(&a, 0x48, 0x8b, 0x0e);			/* mov (%rsi),%rcx: done */
+	cmp[3] = PATTERN_MAX * 8 + 8;
+	emit(&a, cmp, sizeof(cmp));			/* cmp total(%rsi),%rcx */
+	EMIT(&a, 0x73, 0x0c);				/* jae report */
+	EMIT(&a, 0x48, 0xff, 0x06);			/* incq (%rsi) */
+	EMIT(&a, 0x48, 0x8b, 0x54, 0xce, 0x08);		/* mov 8(%rsi,%rcx,8),%rdx */
+	EMIT(&a, 0x8a, 0x02);				/* mov (%rdx),%al */
+	EMIT(&a, 0x0f, 0x0b);				/* ud2 */
+	/* report: */
+	emit_movabs(&a, GPR_RDX, UVA_MMIO);
+	EMIT(&a, 0x89, 0x0a);				/* mov %ecx,(%rdx) */
+	EMIT(&a, 0x0f, 0x05);				/* syscall */
+	EMIT(&a, 0x0f, 0x0b);				/* ud2 */
+}
+
+/*
+ * A supervisor-mode probe, entered only by a case that points RIP at it:
+ * PVM_CPUID_FEATURES through the synthetic CPUID, then CR2_PROBE written
+ * into PVCS::cr2 -- the guest's way of setting CR2 -- and ebx reported on
+ * the event MMIO page.
+ */
+#define CR2_PROBE	0x00007f0012345678ULL
+
+static uint64_t build_smod_probe_code(struct guest *g)
+{
+	struct asmbuf a = { g->mem + O_SCODE + 0x600, g->kva + O_SCODE + 0x600 };
+	uint64_t entry = a.va;
+	uint8_t mov_eax[5] = { 0xb8 };
+	uint32_t leaf = PVM_CPUID_FEATURES;
+
+	memcpy(mov_eax + 1, &leaf, 4);
+	emit(&a, mov_eax, sizeof(mov_eax));		/* mov $leaf,%eax */
+	EMIT(&a, 0x31, 0xc9);				/* xor %ecx,%ecx */
+	EMIT(&a, PVM_SYNTHETIC_CPUID);
+	emit_movabs(&a, GPR_RDI, g->kva + O_PVCS);
+	emit_movabs(&a, GPR_RAX, CR2_PROBE);
+	EMIT(&a, 0x48, 0x89, 0x47, PVCS_CR2);		/* mov %rax,cr2(%rdi) */
+	emit_movabs(&a, GPR_RDX, g->kva + 0x10000);	/* the event MMIO page */
+	EMIT(&a, 0x89, 0x1a);				/* mov %ebx,(%rdx) */
+	EMIT(&a, 0xeb, 0xfe);				/* 1: jmp 1b */
+	return entry;
+}
+
+/*
  * The event handlers, at MSR_PVM_EVENT_ENTRY and +512 as the ABI requires.
  * Both run in supervisor mode.  Each reports the PVCS event vector with a
  * marker saying which one ran, and then spins: the VMM stops calling
@@ -429,6 +510,8 @@ static int guest_setup(struct vm *v, struct guest *g)
 	if (g->pgtbl_variant)
 		build_pgtbl_smod_code(g);
 	build_umod_code(g);
+	build_umod_fault_code(g);
+	build_umod_pattern_code(g);
 	build_event_code(g, 0, MARK_USER_EVENT);
 	build_event_code(g, 512, MARK_SUPERVISOR_EVENT);
 	build_page_tables(g);
@@ -1088,6 +1171,180 @@ out:
 	vm_teardown(&v);
 }
 
+
+/* --- PVM_FEATURE_DIRECT_PF ---------------------------------------------- */
+
+/*
+ * The guest's view of the feature: the synthetic CPUID it would check, and
+ * CR2 as KVM reports it after the guest sets it the PVM way, through
+ * PVCS::cr2, and exits.
+ */
+static void test_direct_pf_cpuid_and_cr2_write(struct vm *v, struct guest *g)
+{
+	struct kvm_regs r;
+	struct kvm_sregs s;
+	struct outcome o;
+	char desc[256];
+
+	current_case = "pvm/direct-pf/cpuid-and-cr2-write";
+	if (ioctl(v->vcpu, KVM_GET_REGS, &r) < 0) {
+		nok("KVM_GET_REGS: %s", strerror(errno));
+		return;
+	}
+	r.rip = build_smod_probe_code(g);
+	if (ioctl(v->vcpu, KVM_SET_REGS, &r) < 0) {
+		nok("KVM_SET_REGS: %s", strerror(errno));
+		return;
+	}
+
+	guest_run(v, &o, 1, 10);
+	describe(&o, desc, sizeof(desc));
+	if (o.events != 1) {
+		nok("the probe never reported: %s", desc);
+		return;
+	}
+	if (!(o.last_event & PVM_FEATURE_DIRECT_PF)) {
+		nok("PVM_CPUID_FEATURES.ebx is %#x, without PVM_FEATURE_DIRECT_PF",
+		    o.last_event);
+		return;
+	}
+	if (ioctl(v->vcpu, KVM_GET_SREGS, &s) < 0) {
+		nok("KVM_GET_SREGS: %s", strerror(errno));
+		return;
+	}
+	if (s.cr2 != CR2_PROBE)
+		nok("guest wrote %#llx to PVCS::cr2, KVM reports CR2 %#llx",
+		    (unsigned long long)CR2_PROBE, (unsigned long long)s.cr2);
+	else
+		ok("ebx %#x; CR2 %#llx after the guest wrote it", o.last_event,
+		   (unsigned long long)s.cr2);
+}
+
+/*
+ * A user read of an address with no guest PTE, with the feature enabled
+ * (@direct) or not.  Either way the guest must see the same fault -- vector
+ * 14 at the user entry, error code U, PVCS::cr2 the address -- and KVM must
+ * report that CR2 afterwards.  What differs is who delivered it: pf_guest
+ * counts the #PFs KVM injected, which a switcher delivery never is.  (Not
+ * pf_taken: the event handler's own first faults, in supervisor mode, count
+ * there.)
+ */
+static void test_direct_pf_fault(struct vm *v, struct guest *g, bool direct)
+{
+	uint64_t want_va = FAULT_VA + 0x123, taken0 = 0, taken1 = 0, pvcs_cr2;
+	uint16_t errcode;
+	struct kvm_sregs s;
+	struct outcome o;
+	char desc[256];
+
+	current_case = direct ? "pvm/direct-pf/user-np-delivered-directly" :
+				"pvm/direct-pf/user-np-disabled-slow-path";
+	/*
+	 * Warm up first, with the feature off: the warm-up's own first
+	 * touches of present pages would otherwise be delivered spuriously,
+	 * to an event handler that only spins.
+	 */
+	if (warm_up(v, g, current_case))
+		return;
+	if (set_msr(v, MSR_PVM_FEATURES_ENABLED, direct ? PVM_FEATURE_DIRECT_PF : 0) <= 0) {
+		nok("MSR_PVM_FEATURES_ENABLED write refused");
+		return;
+	}
+	if (vcpu_stat(v, "pf_guest", &taken0)) {
+		nok("no pf_guest stat");
+		return;
+	}
+
+	ctrl_set(g, UVA_CODE + UCODE_FAULT, 0x202, GOOD_SEL);
+	guest_run(v, &o, 1, 10);
+	describe(&o, desc, sizeof(desc));
+	vcpu_stat(v, "pf_guest", &taken1);
+
+	if (o.events != 1 || o.last_event != (MARK_USER_EVENT | 0x100 | 14)) {
+		nok("expected a #PF at the user event entry: %s", desc);
+		return;
+	}
+	memcpy(&errcode, g->mem + O_PVCS + PVCS_ERRCODE, 2);
+	memcpy(&pvcs_cr2, g->mem + O_PVCS + PVCS_CR2, 8);
+	if (ioctl(v->vcpu, KVM_GET_SREGS, &s) < 0) {
+		nok("KVM_GET_SREGS: %s", strerror(errno));
+		return;
+	}
+	if (errcode != 0x4)
+		nok("error code %#x, want U (0x4)", errcode);
+	else if (pvcs_cr2 != want_va)
+		nok("PVCS::cr2 %#llx, want %#llx", (unsigned long long)pvcs_cr2,
+		    (unsigned long long)want_va);
+	else if (s.cr2 != want_va)
+		nok("KVM reports CR2 %#llx after the fault, want %#llx",
+		    (unsigned long long)s.cr2, (unsigned long long)want_va);
+	else if (direct && taken1 != taken0)
+		nok("KVM injected the fault (pf_guest %llu -> %llu): "
+		    "not delivered by the switcher", (unsigned long long)taken0,
+		    (unsigned long long)taken1);
+	else if (!direct && taken1 == taken0)
+		nok("KVM never injected the fault with the feature off");
+	else
+		ok("#PF U at %#llx, CR2 synced, pf_guest +%llu", (unsigned long long)want_va,
+		   (unsigned long long)(taken1 - taken0));
+}
+
+/*
+ * The repeat rule, deterministically.  The guest faults on @n addresses in
+ * the order given, none of them mapped, and resumes after each; pf_taken
+ * says how many reached the shadow MMU instead of being delivered directly.
+ * The rule fixes that number: never twice in a row on a page, and never more
+ * than four deliveries in a row.
+ */
+static void test_direct_pf_rule(struct vm *v, struct guest *g, const char *name,
+				const char *pattern, uint64_t want_slow)
+{
+	uint64_t n = strlen(pattern), total = n, zero = 0, taken0 = 0, taken1 = 0, i;
+	uint8_t *p = g->mem + O_USTACK + PATTERN_OFF;
+	struct outcome o;
+	char desc[256];
+
+	current_case = name;
+	if (warm_up(v, g, name))
+		return;
+	if (set_msr(v, MSR_PVM_FEATURES_ENABLED, PVM_FEATURE_DIRECT_PF) <= 0) {
+		nok("MSR_PVM_FEATURES_ENABLED write refused");
+		return;
+	}
+
+	/* Every #PF back to user mode at the pattern routine, via the smod code. */
+	if (set_msr(v, MSR_PVM_EVENT_ENTRY, g->smod_entry) <= 0) {
+		nok("MSR_PVM_EVENT_ENTRY write refused");
+		return;
+	}
+	memcpy(p, &zero, 8);
+	for (i = 0; i < n; i++) {
+		uint64_t va = UVA_BASE + 0x10000 + (uint64_t)(pattern[i] - 'A') * 0x1000 + 0x40;
+
+		memcpy(p + 8 + i * 8, &va, 8);
+	}
+	memcpy(p + 8 + PATTERN_MAX * 8, &total, 8);
+	ctrl_set(g, UVA_CODE + UCODE_PATTERN, 0x202, GOOD_SEL);
+
+	if (vcpu_stat(v, "pf_taken", &taken0)) {
+		nok("no pf_taken stat");
+		return;
+	}
+	guest_run(v, &o, 1, 10);
+	vcpu_stat(v, "pf_taken", &taken1);
+	describe(&o, desc, sizeof(desc));
+
+	if (o.reports != 1 || o.last_rflags != n)
+		nok("the pattern did not run to the end: %s", desc);
+	else if (taken1 - taken0 != want_slow)
+		nok("pattern %s: %llu of %llu faults reached the shadow MMU, the "
+		    "rule says %llu", pattern, (unsigned long long)(taken1 - taken0),
+		    (unsigned long long)n, (unsigned long long)want_slow);
+	else
+		ok("pattern %s: %llu direct, %llu through the MMU", pattern,
+		   (unsigned long long)(n - want_slow), (unsigned long long)want_slow);
+}
+
 int main(void)
 {
 	struct vm v = {};
@@ -1143,6 +1400,47 @@ int main(void)
 	vm_teardown(&v);
 
 	test_pvcs_alias_last_vcpu();
+
+	vm_setup(&v);
+	if (!guest_setup(&v, &g))
+		test_direct_pf_cpuid_and_cr2_write(&v, &g);
+	vm_teardown(&v);
+
+	vm_setup(&v);
+	if (!guest_setup(&v, &g))
+		test_direct_pf_fault(&v, &g, true);
+	vm_teardown(&v);
+
+	vm_setup(&v);
+	if (!guest_setup(&v, &g))
+		test_direct_pf_fault(&v, &g, false);
+	vm_teardown(&v);
+
+	{
+		/*
+		 * AAAAAA: every other one is the same page as the delivery
+		 * before it.  AABCDEFG: the second A resets the run, then four
+		 * deliveries, F refused, G delivered.  AABCBCBC: B and C
+		 * alternate, so only the run limit refuses one.
+		 */
+		static const struct {
+			const char *name, *pattern;
+			uint64_t slow;
+		} rules[] = {
+			{ "pvm/direct-pf/rule-same-page", "AAAAAA", 3 },
+			{ "pvm/direct-pf/rule-run-limit", "AABCDEFG", 2 },
+			{ "pvm/direct-pf/rule-interleaved", "AABCBCBC", 2 },
+		};
+		size_t i;
+
+		for (i = 0; i < sizeof(rules) / sizeof(rules[0]); i++) {
+			vm_setup(&v);
+			if (!guest_setup(&v, &g))
+				test_direct_pf_rule(&v, &g, rules[i].name,
+						    rules[i].pattern, rules[i].slow);
+			vm_teardown(&v);
+		}
+	}
 
 	printf("1..%d\n", pass + fail);
 	printf("PVMHOSTTEST-RESULT: %s pass=%d fail=%d\n",
