@@ -34,16 +34,12 @@ x86/max_vcpuid_cap_test		intel	pass
 x86/sync_regs_test		pvm	pass	KVM_SYNC_X86_REGS against the switcher's save/restore
 x86/sync_regs_test		intel	pass
 
-# --- was "fails under both"; now PVM only --------------------------------
+# --- open PVM failure ---------------------------------------------------
 # "MMIO during vectoring error handling" wants KVM_EXIT_INTERNAL_ERROR and
-# gets KVM_EXIT_SHUTDOWN.  It does this under kvm-intel too, where L1 is
-# itself a nested guest, so this says nothing about PVM.  Worth revisiting
-# if the harness ever runs on bare metal.
-# 2026-09-13: passes under kvm-intel now (two runs of batteries/check.pvm),
-# so the PVM failure is no longer explained by nesting.  Open: PVM does not
-# produce KVM_EXIT_INTERNAL_ERROR for MMIO during event vectoring.
-set_memory_region_test		pvm	fail	unexplained since kvm-intel passes; see above
-set_memory_region_test		intel	pass	passed 2/2 on 2026-09-13
+# gets KVM_EXIT_SHUTDOWN under PVM.  kvm-intel passes it in the same L1, so
+# this is PVM: it does not report MMIO during event vectoring.
+set_memory_region_test		pvm	fail	no KVM_EXIT_INTERNAL_ERROR for MMIO during vectoring
+set_memory_region_test		intel	pass
 
 # --- declared PVM gaps ------------------------------------------------
 # PVM advertises neither capability, so the tests skip themselves rather
@@ -89,13 +85,11 @@ x86/userspace_msr_exit_test	intel	pass
 x86/cr4_cpuid_sync_test		pvm	fail	CPUID untrapped by default; passes with cpuid_intercept=1
 x86/cr4_cpuid_sync_test		intel	pass
 
-# state_test passes again now that PKU is advertised and implemented.  It
-# failed for as long as it was not: the test reads CPUID.0xD to find which
-# xfeatures it may enable, got the host's answer -- which includes PKRU --
-# and XSETBV was then refused because guest_supported_xcr0 did not include
-# it, which triple faulted the guest.
+# state_test depends on PKU being advertised and implemented: it reads
+# CPUID.0xD to find which xfeatures it may enable, gets the host's answer --
+# which includes PKRU -- and XSETBV must then accept it.
 #
-# Worth keeping the note: while CPUID is untrapped, hiding a feature from the
+# While CPUID is untrapped, hiding a feature from the
 # guest kernel does not hide it from anything that asks the hardware, and the
 # two then actively disagree about what the hypervisor will accept.  This test
 # is the clearest statement of that.

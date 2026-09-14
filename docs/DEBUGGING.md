@@ -26,8 +26,8 @@ link_va = 0xffffffff00000000 | (rip & 0xffffffff)
 ```
 
 `__do_pvm_event()` also prints why it gave up whenever it triple-faults
-instead of delivering an event, which is how the PVCS and nested-event
-failures were told apart.
+instead of delivering an event, which tells a PVCS problem from a nested
+event.
 
 ## An early console, by hand
 
@@ -46,8 +46,8 @@ whole boot log:
 	}
 ```
 
-This is what turned "the guest produced no serial output at all" into a
-complete oops with a call trace, four times in a row. Take it out again
+That turns "the guest produced no serial output at all" into a complete
+oops with a call trace. Take it out again
 once the guest gets past `parse_early_param()` on its own.
 
 While hunting an early crash it is also worth dropping `panic=-1` and
