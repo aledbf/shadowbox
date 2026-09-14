@@ -208,13 +208,16 @@ func judge(b Boot, o *Outcome, logText string, exitCode int, checks []string) (s
 	if o.HostFail > 0 {
 		return "FAIL", fmt.Sprintf("%d host test(s) failed", o.HostFail)
 	}
-	if len(o.Passed) == 0 && o.HostPass == 0 && len(o.Metrics) == 0 {
+	if len(o.Passed) == 0 && o.HostPass == 0 && o.Selftests == 0 && len(o.Metrics) == 0 {
 		return "FAIL", fmt.Sprintf("no results in the log (run-l1 exit %d)", exitCode)
 	}
 	if len(checks) > 0 {
 		return "FAIL", checks[0]
 	}
 	why := fmt.Sprintf("%d passed", len(o.Passed)+o.HostPass)
+	if o.Selftests > 0 {
+		why += fmt.Sprintf(", %d selftests as expected", o.Selftests)
+	}
 	if len(o.Failed) > 0 {
 		why += fmt.Sprintf(", %d allowed failure(s): %s", len(o.Failed), strings.Join(o.Failed, " "))
 	}

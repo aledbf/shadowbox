@@ -39,8 +39,11 @@ x86/sync_regs_test		intel	pass
 # gets KVM_EXIT_SHUTDOWN.  It does this under kvm-intel too, where L1 is
 # itself a nested guest, so this says nothing about PVM.  Worth revisiting
 # if the harness ever runs on bare metal.
-set_memory_region_test		pvm	fail	fails identically under kvm-intel: nesting artefact
-set_memory_region_test		intel	fail	same
+# 2026-09-13: passes under kvm-intel now (two runs of batteries/check.pvm),
+# so the PVM failure is no longer explained by nesting.  Open: PVM does not
+# produce KVM_EXIT_INTERNAL_ERROR for MMIO during event vectoring.
+set_memory_region_test		pvm	fail	unexplained since kvm-intel passes; see above
+set_memory_region_test		intel	pass	passed 2/2 on 2026-09-13
 
 # --- declared PVM gaps ------------------------------------------------
 # PVM advertises neither capability, so the tests skip themselves rather

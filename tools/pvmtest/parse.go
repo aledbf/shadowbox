@@ -16,6 +16,7 @@ type Outcome struct {
 	Results    []string // PVMTEST-RESULT / PVMHOSTTEST-RESULT words: ok|fail
 	HostPass   int      // summed over host test programs
 	HostFail   int
+	Selftests  int    // "SELFTEST: <name> <verdict>" lines; check-selftests.sh judges them
 	LoadFailed bool   // the vendor module did not load
 	FailClosed string // suite failclosed: the agent's "FAILCLOSED: ok|fail" word
 	Metrics    []Metric
@@ -76,6 +77,10 @@ func ParseLog(r io.Reader) *Outcome {
 					o.Failed = append(o.Failed, name)
 				}
 			}
+			continue
+		}
+		if strings.HasPrefix(body, "SELFTEST: ") {
+			o.Selftests++
 			continue
 		}
 		if m := hostResRe.FindStringSubmatch(body); m != nil {

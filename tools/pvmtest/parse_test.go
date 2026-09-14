@@ -23,6 +23,7 @@ G[q35]: # failed: time/monotonic security/priv-insn/invd
 G[q35]: PVMTEST-RESULT: fail tag=pvm-guest suite=default pass=1 fail=2
 H: PVMHOSTTEST-RESULT: ok pass=21 fail=0
 H: PVMHOSTTEST-RESULT: fail pass=12 fail=1
+SELFTEST: dirty_log_test pass rc=0
 [    3.0] WARNING: CPU: 1 PID: 7 at arch/x86/kvm/mmu/mmu.c:1 foo
 `
 
@@ -43,6 +44,9 @@ func TestParseLog(t *testing.T) {
 	}
 	if o.HostPass != 33 || o.HostFail != 1 {
 		t.Errorf("host tests: %d/%d", o.HostPass, o.HostFail)
+	}
+	if o.Selftests != 1 {
+		t.Errorf("selftests: %d", o.Selftests)
 	}
 	if len(o.Metrics) != 1 || o.Metrics[0].Value != 4658.1 {
 		t.Errorf("metrics: %v", o.Metrics)
