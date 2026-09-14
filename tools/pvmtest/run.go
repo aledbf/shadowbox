@@ -134,12 +134,10 @@ func (e *Env) l1Opts(b Boot) (L1Opts, error) {
 	switch it.Get("l1", "kvm") {
 	case "kvm":
 	case "tcg", "tcg-la57":
-		// Emulated: everything is an order of magnitude slower.  TCG
-		// emulates PCID and INVPCID, which kvm-pvm requires, but "max"
-		// does not enable them.
-		o.Accel, o.CPU = "tcg", "max,+pcid,+invpcid"
+		// Emulated: everything is an order of magnitude slower.
+		o.Accel, o.CPU = "tcg", "max"
 		if it.Get("l1", "") == "tcg-la57" {
-			o.CPU += ",la57=on"
+			o.CPU = "max,la57=on"
 		}
 		o.L1Args = append(o.L1Args, "pvmtest.guest_timeout=15000")
 		o.Timeout = 20000 * time.Second
