@@ -1,6 +1,6 @@
 # PVM: what it is, what it costs, what is left
 
-For someone — or something — picking this up cold, with one of two jobs:
+For someone - or something - picking this up cold, with one of two jobs:
 
 - **make it faster**, or
 - **make it smaller**, meaning fewer changes to code shared with kernels that
@@ -10,9 +10,9 @@ Read "The design" and "Ruled out" before proposing anything.
 
 Two repositories:
 
-- `linux-aledbf`, branch **`pvm-7.3-series`** — the kernel series on
+- `linux-aledbf`, branch **`pvm-7.3-series`** - the kernel series on
   `v7.3-rc2`. Each commit builds (`bzImage` + `modules`) on its own.
-- `pvm-testbed` — the harness, and only the harness: it carries no kernel.
+- `pvm-testbed` - the harness, and only the harness: it carries no kernel.
   Kernels come from `KSRC`, or from a git tree and revision named by a
   battery's `kernel` directive. L0 runs L1 as an ordinary KVM guest, L1 loads
   `kvm-pvm` and runs the guest inside it. Everything below is measured in that
@@ -85,14 +85,14 @@ with 8 vCPUs and THP:
 | benchmark | KVM, 1 cpu | PVM, 1 cpu | 1 cpu | 2 | 4 | 8 |
 |---|---:|---:|---:|---:|---:|---:|
 | `perf/syscall` (getpid) | 58.5 ns | 211 ns | 3.60x | 3.90x | 3.71x | 3.58x |
-| `perf/context-switch` (pipe) | 5147 ns | 7924 ns | 1.54x | 1.66x | 1.92x | — |
+| `perf/context-switch` (pipe) | 5147 ns | 7924 ns | 1.54x | 1.66x | 1.92x | - |
 | `perf/page-fault` | 1001 ns | 3004 ns | 3.00x | 3.40x | 2.93x | 2.99x |
 | `perf/parallel-fault` | 705 ns | 2737 ns | 3.88x | 3.83x | 3.73x | 4.71x |
 | `perf/fork-exec` | 470 µs | 1675 µs | 3.56x | 4.82x | 4.56x | 4.58x |
 | `perf/parallel-fork` | 445 µs | 1586 µs | 3.56x | 4.81x | 4.98x | 6.51x |
 
 The two sides' ranges are disjoint everywhere except context-switch at 1 cpu.
-Context-switch lost reps at 2 and 4 cpus and reports nothing at 8 — read that
+Context-switch lost reps at 2 and 4 cpus and reports nothing at 8 - read that
 row as indicative. `perf/fault-scaling` is 2.9-3.5x and the `fault-rounds`
 refaults 2.7-5.2x.
 
@@ -129,7 +129,7 @@ has filled it.
 - **Direct #PF** (`PVM_FEATURE_DIRECT_PF`) serves the first without an exit.
   The switcher delivers a user-mode not-present fault straight to the guest's
   event entry, with no shadow walk. When only the shadow entry was missing the
-  delivery is spurious — the guest finds its PTE present and returns, and the
+  delivery is spurious - the guest finds its PTE present and returns, and the
   next fault on that page exits normally: never twice in a row on the same page,
   never more than 4 in a row. Spurious deliveries stay under 0.25%. The result
   is 1.0 exits per first-touched page instead of 2.0, and a third less time in
@@ -203,7 +203,7 @@ on, but read why it failed there first.
 4. **The protection-key swap, ~13 ns.** Unconditional for any guest with
    `CR4.PKE`; Linux tasks run on `init_pkru` = 0x55555554, so a "user PKRU
    equals supervisor" short circuit never fires. Making it free means letting
-   supervisor mode run on the user's PKRU — a decision, not an optimisation.
+   supervisor mode run on the user's PKRU - a decision, not an optimisation.
 5. **`XCR0` switching.** PVM keeps the guest's `XCR0` equal to the host's to
    avoid an `XSETBV` exit to L0 on every switch; the size of that cost has never
    been separated from run-to-run drift.

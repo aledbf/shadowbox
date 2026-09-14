@@ -19,12 +19,12 @@ root filesystem. `mmdebstrap` does it unprivileged where unprivileged
 user namespaces are allowed, but Ubuntu 24.04 and later restrict those by
 default. `pvmtest build rootfs` picks between `unshare`, `fakechroot`
 and `root`, says which it picked, and chowns its output back to the
-invoking user when it ran under sudo. Everything else — both kernel
-builds, the initrd, and every boot — runs as you.
+invoking user when it ran under sudo. Everything else - both kernel
+builds, the initrd, and every boot - runs as you.
 
 ## The shape of it
 
-PVM's whole claim is that a host needs no VMX and no EPT — it runs the
+PVM's whole claim is that a host needs no VMX and no EPT - it runs the
 guest at hardware CPL3 and shadows its page tables. That is what makes
 this testable on a laptop without rebooting it:
 
@@ -36,8 +36,8 @@ L0   this machine, its own kernel, ordinary KVM
 ```
 
 Stage 0 skips all of that. The guest kernel is built PIE and PVM-capable
-but must still boot as an ordinary KVM guest — `pvm_detect()` returns
-false and the relocation is a no-op — so stage 0 boots it directly on L0
+but must still boot as an ordinary KVM guest - `pvm_detect()` returns
+false and the relocation is a no-op - so stage 0 boots it directly on L0
 and exercises every line of the PIE and early-boot work without a PVM
 host existing yet. It is the cheapest useful signal in the whole tree and
 it is where to start.
@@ -115,7 +115,7 @@ was built with, and none of it was smoothed over by a rescue shell.
 It mounts `/proc`, `/sys`, `/dev` and `/tmp`, prints where the kernel
 actually landed, runs the selected suite, prints one machine-readable
 result line, and powers the machine off. Every path through it ends in a
-result line and a power off — a VM that hangs after a failure is a three
+result line and a power off - a VM that hangs after a failure is a three
 minute wait for an answer it already had.
 
 The host side keys off exactly one line:
@@ -143,7 +143,7 @@ PVMINIT: _text at 0xffffffff81000000
 ```
 
 An ordinary kernel is mapped in the top 2GB. A PVM guest may not use that
-range at all, so under PVM this address must be somewhere else — it is
+range at all, so under PVM this address must be somewhere else - it is
 the one number that says whether the early relocation ran. Stage 0
 expects the usual address; stage 2 passes `pvmtest.expect=pvm` and
 `pvm/relocated` turns it into a hard failure.
@@ -161,7 +161,7 @@ module, with no guest of ours involved:
 - a curated subset of the kernel's own KVM selftests, listed in
   `configs/kvm-selftests.txt`, with the outcome of each recorded per
   vendor in `configs/kvm-selftests-expect.txt`. Any difference from the
-  recorded outcome fails the run — including a test that starts *passing*,
+  recorded outcome fails the run - including a test that starts *passing*,
   which means a gap closed and the file now says the opposite of the
   truth.
 
@@ -177,5 +177,5 @@ memory or the host's window, but the security argument as a whole wants
 review rather than a test run.
 
 The performance numbers are guest-visible only. Where the cost actually
-lands — host CPU spent in the shadow MMU — needs `perf` on L1, not a
+lands - host CPU spent in the shadow MMU - needs `perf` on L1, not a
 number the guest can print.

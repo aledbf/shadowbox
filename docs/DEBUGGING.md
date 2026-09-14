@@ -2,7 +2,7 @@
 
 The guest's own console is the only useful instrument, and the hardest
 window to see into is before `setup_arch()` reaches
-`parse_early_param()` — because that is where `earlyprintk=` is acted on.
+`parse_early_param()` - because that is where `earlyprintk=` is acted on.
 A guest that oopses before then prints into the printk ring buffer and
 then reboots, and nothing reaches the serial line.
 
@@ -14,7 +14,7 @@ window. Two things get you through it.
 A guest that never prints anything still leaves a trace on the host.
 The L1 agent (`tools/l1agent`) turns on the `kvm` tracepoints around the guest
 run and prints the tail afterwards, filtered down to the events that say
-something — instruction emulation and the mmu-notifier unmap storm at
+something - instruction emulation and the mmu-notifier unmap storm at
 qemu exit drown out everything else.
 
 Resolve the RIPs against `out/images/guest-vmlinux.debug`. The trace
@@ -62,8 +62,8 @@ The kernel side reports PVM exit reasons, and the hypercall number in
 exits on. The L1 agent (`tools/l1agent`) wraps the guest in `perf kvm stat record`
 for the `perf` suite and prints the report afterwards.
 
-It needs a perf built against this tree — a distro perf does not know the
-PVM exit reasons — and that perf needs libtraceevent, because
+It needs a perf built against this tree - a distro perf does not know the
+PVM exit reasons - and that perf needs libtraceevent, because
 `perf kvm stat` is compiled out entirely without it:
 
 ```
