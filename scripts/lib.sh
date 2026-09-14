@@ -6,9 +6,14 @@ TESTBED="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${OUT:-$TESTBED/out}"
 CACHE="${CACHE:-$TESTBED/cache}"
 
-# The kernel tree under test.  The 7.3 port lives here; override KSRC to
-# point the same harness at the original 6.12 branch for an A/B run.
-KSRC="${KSRC:-/home/aledbf/Trabajo/github/linux-aledbf}"
+# The kernel tree under test.  The testbed carries none: KSRC names the
+# checkout the images in out/ are built from (the PVM series, or anything
+# else), and batteries name their own trees with "kernel" directives.
+KSRC="${KSRC:-}"
+need_ksrc() {
+	[ -n "$KSRC" ] && [ -d "$KSRC" ] ||
+		die "KSRC must name a kernel tree (KSRC=${KSRC:-unset})"
+}
 
 JOBS="${JOBS:-$(nproc)}"
 QEMU="${QEMU:-qemu-system-x86_64}"

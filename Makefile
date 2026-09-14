@@ -34,7 +34,8 @@
 SHELL := /bin/bash
 S     := scripts
 
-KSRC ?= /home/aledbf/Trabajo/github/linux-aledbf
+# The kernel tree under test; the testbed carries none.  make KSRC=<tree> ...
+KSRC ?=
 export KSRC
 
 .PHONY: all help deps guest-kernel host-kernel initrd rootfs regress \

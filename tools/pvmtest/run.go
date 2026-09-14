@@ -33,9 +33,22 @@ type Env struct {
 
 func (e *Env) runL1() string { return filepath.Join(e.Testbed, "scripts", "run-l1.sh") }
 
-// hostVariant is what out/build-host was last built as.
-func (e *Env) hostVariant() string {
-	cfg, err := os.ReadFile(filepath.Join(e.Out, "build-host", ".config"))
+// outFor is the out/ directory of an item's image set.
+func (e *Env) outFor(it Item) string {
+	if k := it.Get("kernel", ""); k != "" {
+		return filepath.Join(e.Out, "refs", k)
+	}
+	return e.Out
+}
+
+// hostVariant is what an image set's host was last built as.
+func (e *Env) hostVariant(out string) string {
+	if raw, err := os.ReadFile(filepath.Join(out, "built")); err == nil {
+		if f := strings.Fields(string(raw)); len(f) == 2 {
+			return f[1]
+		}
+	}
+	cfg, err := os.ReadFile(filepath.Join(out, "build-host", ".config"))
 	if err != nil {
 		return "unknown"
 	}
@@ -55,27 +68,33 @@ func Boots(it Item) ([]Boot, error) {
 	if err != nil {
 		return nil, err
 	}
-	vendors := it.List("vendor")
-	if vendors == nil {
-		vendors = []string{"pvm"}
+	vendorsOf := func(it Item) []string {
+		if v := it.List("vendor"); v != nil {
+			return v
+		}
+		return []string{"pvm"}
 	}
 	var out []Boot
 	for rep := 1; rep <= reps[0]; rep++ {
 		for _, c := range cpus {
-			for _, v := range vendors {
-				if it.Kind == "ab" {
-					// Alternate the order every repetition, so slow
-					// drift lands on both sides.
-					sides := []string{"a", "b"}
-					if rep%2 == 0 {
-						sides = []string{"b", "a"}
-					}
-					for _, s := range sides {
-						out = append(out, Boot{Item: it.Variant(s), Vendor: v, CPUs: c, Rep: rep, Side: s})
-					}
-					continue
+			if it.Kind == "ab" {
+				// Alternate the order every repetition, so slow drift
+				// lands on both sides.  Each side may set its own
+				// vendor and kernel.
+				sides := []string{"a", "b"}
+				if rep%2 == 0 {
+					sides = []string{"b", "a"}
 				}
-				out = append(out, Boot{Item: it, Vendor: v, CPUs: c, Rep: rep})
+				for _, s := range sides {
+					v := it.Variant(s)
+					for _, vendor := range vendorsOf(v) {
+						out = append(out, Boot{Item: v, Vendor: vendor, CPUs: c, Rep: rep, Side: s})
+					}
+				}
+				continue
+			}
+			for _, vendor := range vendorsOf(it) {
+				out = append(out, Boot{Item: it, Vendor: vendor, CPUs: c, Rep: rep})
 			}
 		}
 	}
@@ -148,6 +167,10 @@ func (e *Env) command(b Boot) (*exec.Cmd, string, error) {
 	}
 	suffix := "pvmtest-" + b.LogName
 	env = append(env, "LOG_SUFFIX="+suffix)
+	out := e.outFor(it)
+	if out != e.Out {
+		env = append(env, "OUT="+out)
+	}
 
 	timeout := it.Get("timeout", "")
 	if timeout == "" {
@@ -162,7 +185,7 @@ func (e *Env) command(b Boot) (*exec.Cmd, string, error) {
 	cmd.Dir = e.Testbed
 	// run-l1.sh names its log l1-<suite>-<vendor>-<suffix>.log.
 	logSuite := suite
-	log := filepath.Join(e.Out, "logs", fmt.Sprintf("l1-%s-%s-%s.log", logSuite, b.Vendor, suffix))
+	log := filepath.Join(out, "logs", fmt.Sprintf("l1-%s-%s-%s.log", logSuite, b.Vendor, suffix))
 	return cmd, log, nil
 }
 
@@ -355,6 +378,9 @@ func writeStats(path string, pairs []StatsPair, keys []string) {
 func writeFile(path, text string) error { return os.WriteFile(path, []byte(text), 0o644) }
 
 func gitDescribe(dir string) string {
+	if dir == "" {
+		return "unset"
+	}
 	out, err := exec.Command("git", "-C", dir, "describe", "--always", "--dirty").Output()
 	if err != nil {
 		return "unknown"

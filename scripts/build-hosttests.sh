@@ -11,6 +11,7 @@
 # execute anything.
 
 source "$(dirname "$0")/lib.sh"
+need_ksrc
 need gcc
 
 B="$OUT/build-host"

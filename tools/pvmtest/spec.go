@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,11 +15,17 @@ import (
 //	# comment
 //	set <key>=<value> ...          defaults for every item after it
 //
+// ${VAR} and ${VAR:-default} are taken from the environment.
+//
 // A value with spaces is written in double quotes: reason="without KPTI".
 //
 //	run    <name> <key>=<value> ...  boots, checked against expectations
 //	matrix <name> <key>=<value> ...  runs, reduced to medians per metric
 //	ab     <name> <key>=<value> ...  two variants (a.* / b.*), alternating
+//	kernel <name> git=<dir> rev=<rev> [host=timing|stats]
+//	                               a host+guest image set built from that
+//	                               revision (scripts/build-ref.sh), which
+//	                               items select with kernel=<name>
 //
 // Keys (a value runs to the next space; lists are comma separated):
 //
@@ -28,6 +35,7 @@ import (
 //	cpus        guest vCPU counts, one boot each
 //	reps        repetitions
 //	host        stats|timing: the host build the item needs
+//	kernel      an image set declared with "kernel"; default: out/images
 //	l1          kvm|tcg|tcg-la57
 //	pti         on: boot L1 with pti=on
 //	guest       extra guest kernel arguments
@@ -50,16 +58,22 @@ type Item struct {
 }
 
 type Battery struct {
-	Path  string
-	Text  string
-	Items []Item
+	Path    string
+	Text    string
+	Items   []Item
+	Kernels []Kernel
+}
+
+type Kernel struct {
+	Name, Git, Rev, Host string
+	Line                 int
 }
 
 var knownKeys = map[string]bool{
 	"suite": true, "cases": true, "vendor": true, "cpus": true, "reps": true,
 	"host": true, "l1": true, "pti": true, "guest": true, "mod": true,
 	"l1append": true, "stats": true, "profile": true, "allow-fail": true,
-	"expect": true, "timeout": true, "baseline": true, "threshold": true, "reason": true,
+	"expect": true, "timeout": true, "baseline": true, "threshold": true, "reason": true, "kernel": true,
 }
 
 func ParseBattery(path string) (*Battery, error) {
@@ -73,7 +87,7 @@ func ParseBattery(path string) (*Battery, error) {
 	n := 0
 	for sc.Scan() {
 		n++
-		f, err := fields(sc.Text())
+		f, err := fields(expandEnv(sc.Text()))
 		if err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, n, err)
 		}
@@ -90,6 +104,30 @@ func ParseBattery(path string) (*Battery, error) {
 			for k, v := range kv {
 				defaults[k] = v
 			}
+		case "kernel":
+			if len(f) < 2 {
+				return nil, fmt.Errorf("%s:%d: kernel needs a name", path, n)
+			}
+			k := Kernel{Name: f[1], Host: "timing", Line: n}
+			for _, kv := range f[2:] {
+				key, val, ok := strings.Cut(kv, "=")
+				switch {
+				case !ok:
+					return nil, fmt.Errorf("%s:%d: %q is not key=value", path, n, kv)
+				case key == "git":
+					k.Git = val
+				case key == "rev":
+					k.Rev = val
+				case key == "host":
+					k.Host = val
+				default:
+					return nil, fmt.Errorf("%s:%d: kernel: unknown key %q", path, n, key)
+				}
+			}
+			if k.Git == "" || k.Rev == "" {
+				return nil, fmt.Errorf("%s:%d: kernel needs git= and rev= (is the variable they name set?)", path, n)
+			}
+			b.Kernels = append(b.Kernels, k)
 		case "run", "matrix", "ab":
 			if len(f) < 2 {
 				return nil, fmt.Errorf("%s:%d: %s needs a name", path, n, kind)
@@ -114,6 +152,20 @@ func ParseBattery(path string) (*Battery, error) {
 		}
 	}
 	return b, sc.Err()
+}
+
+var envRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
+
+// expandEnv replaces ${VAR} and ${VAR:-default}: the testbed has no kernel
+// of its own, so where the trees are comes from the environment.
+func expandEnv(line string) string {
+	return envRe.ReplaceAllStringFunc(line, func(m string) string {
+		g := envRe.FindStringSubmatch(m)
+		if v := os.Getenv(g[1]); v != "" {
+			return v
+		}
+		return g[3]
+	})
 }
 
 // fields splits a line on spaces, keeping "double quoted" runs together and

@@ -17,6 +17,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -96,10 +97,9 @@ func cmdRun(args []string, listOnly bool) int {
 	}
 	tb := testbedDir()
 	env := &Env{Testbed: tb, Out: filepath.Join(tb, "out"), DryRun: *dry || listOnly}
+	// The kernel under test lives outside the testbed.  KSRC names it for
+	// the image set in out/; kernel directives name their own.
 	ksrc := os.Getenv("KSRC")
-	if ksrc == "" {
-		ksrc = "/home/aledbf/Trabajo/github/linux-aledbf"
-	}
 
 	var items []Item
 	want := map[string]bool{}
@@ -114,13 +114,40 @@ func cmdRun(args []string, listOnly bool) int {
 		}
 	}
 
-	host := env.hostVariant()
+	// Image sets first: they take the longest and every item needs its own.
+	for _, k := range bat.Kernels {
+		args := []string{k.Name, k.Git, k.Rev, k.Host}
+		if env.DryRun {
+			fmt.Printf("kernel %s: scripts/build-ref.sh %s\n", k.Name, strings.Join(args, " "))
+			continue
+		}
+		cmd := exec.Command(filepath.Join(tb, "scripts", "build-ref.sh"), args...)
+		cmd.Dir = tb
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s:%d: building kernel %s: %v\n", bat.Path, k.Line, k.Name, err)
+			return 2
+		}
+	}
+
+	host := env.hostVariant(env.Out)
 	for _, it := range items {
+		host := env.hostVariant(env.outFor(it))
 		if need := it.Get("host", ""); need != "" && need != host && !env.DryRun {
 			fmt.Fprintf(os.Stderr, "%s:%d: %s needs a %s host build, out/build-host is %s:\n"+
 				"  scripts/build-kernel.sh host%s\n", bat.Path, it.Line, it.Name, need, host,
 				map[string]string{"stats": " with HOST_CONFIG_EXTRA=CONFIG_KVM_PVM_STATS=y", "timing": ""}[need])
 			return 2
+		}
+		if k := it.Get("kernel", ""); k != "" && !env.DryRun {
+			found := false
+			for _, kk := range bat.Kernels {
+				found = found || kk.Name == k
+			}
+			if !found {
+				fmt.Fprintf(os.Stderr, "%s:%d: kernel=%s is not declared\n", bat.Path, it.Line, k)
+				return 2
+			}
 		}
 		if it.Get("stats", "") == "on" && host != "stats" && !env.DryRun {
 			fmt.Fprintf(os.Stderr, "%s:%d: %s has stats=on but the host is a %s build\n",
@@ -136,8 +163,13 @@ func cmdRun(args []string, listOnly bool) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 2
 		}
-		manifest := fmt.Sprintf("battery\t%s\nkernel\t%s\ntestbed\t%s\nhost-build\t%s\nstarted\t%s\n\n%s",
-			bat.Path, gitDescribe(ksrc), gitDescribe(tb), host, time.Now().Format(time.RFC3339), bat.Text)
+		manifest := fmt.Sprintf("battery\t%s\nkernel\t%s (KSRC=%s)\ntestbed\t%s\nhost-build\t%s\nstarted\t%s\n",
+			bat.Path, gitDescribe(ksrc), ksrc, gitDescribe(tb), host, time.Now().Format(time.RFC3339))
+		for _, k := range bat.Kernels {
+			manifest += fmt.Sprintf("kernel %s\t%s %s = %s\n", k.Name, k.Git, k.Rev,
+				gitDescribe(filepath.Join(env.Out, "refs", k.Name, "src")))
+		}
+		manifest += "\n" + bat.Text
 		writeFile(filepath.Join(env.Results, "manifest.txt"), manifest)
 		env.summary, _ = os.Create(filepath.Join(env.Results, "summary.tsv"))
 		env.metrics, _ = os.Create(filepath.Join(env.Results, "metrics.tsv"))

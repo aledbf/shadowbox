@@ -14,6 +14,7 @@
 #     alone rather than fighting the kernel's own Makefile.
 
 source "$(dirname "$0")/lib.sh"
+need_ksrc
 need gcc
 
 list="$TESTBED/configs/kvm-selftests.txt"

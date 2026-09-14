@@ -8,6 +8,7 @@
 # one its own configuration describes.
 
 source "$(dirname "$0")/lib.sh"
+need_ksrc
 check_build_deps
 
 role="${1-}"
@@ -33,12 +34,23 @@ for opt in $extra; do
 	esac
 done
 
-log "configuring $role kernel in $B (KSRC=$KSRC)${extra:+ with $extra}"
+# A tree without PVM -- upstream, for the KVM side of a comparison -- gets
+# the same fragments with the PVM options taken out, and is not required
+# to have them.
+pvm_tree=1
+[ -d "$KSRC/arch/x86/kvm/pvm" ] || pvm_tree=0
+role_frag="$TESTBED/configs/$role.fragment"
+if [ "$pvm_tree" = 0 ]; then
+	role_frag="$B/.role.fragment"
+	grep -vE '^CONFIG_(PVM_GUEST|X86_PIE|KVM_PVM)=' "$TESTBED/configs/$role.fragment" > "$role_frag"
+fi
+
+log "configuring $role kernel in $B (KSRC=$KSRC)${extra:+ with $extra}$([ "$pvm_tree" = 0 ] && echo ', no PVM in this tree')"
 make -C "$KSRC" O="$B" -s defconfig
 "$KSRC/scripts/kconfig/merge_config.sh" -m -O "$B" \
 	"$B/.config" \
 	"$TESTBED/configs/common.fragment" \
-	"$TESTBED/configs/$role.fragment" \
+	"$role_frag" \
 	"$extra_frag" >/dev/null
 make -C "$KSRC" O="$B" -s olddefconfig
 
@@ -46,9 +58,11 @@ make -C "$KSRC" O="$B" -s olddefconfig
 # it was asked for.  For these two that is the difference between testing
 # what we think we are testing and testing nothing, so check them.
 want=(CONFIG_SERIAL_8250_CONSOLE=y)
-case "$role" in
-guest) want+=(CONFIG_PVM_GUEST=y CONFIG_X86_PIE=y CONFIG_PVH=y) ;;
-host)  want+=(CONFIG_KVM_PVM=m CONFIG_KVM_INTEL=m) ;;
+case "$role:$pvm_tree" in
+guest:1) want+=(CONFIG_PVM_GUEST=y CONFIG_X86_PIE=y CONFIG_PVH=y) ;;
+guest:0) want+=(CONFIG_PVH=y) ;;
+host:1)  want+=(CONFIG_KVM_PVM=m CONFIG_KVM_INTEL=m) ;;
+host:0)  want+=(CONFIG_KVM_INTEL=m) ;;
 esac
 for opt in $extra; do
 	want+=("$opt")

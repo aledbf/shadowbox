@@ -114,7 +114,7 @@ func WriteAB(w io.Writer, statuses []*Status) {
 		}
 		return keys[i].cpus < keys[j].cpus
 	})
-	fmt.Fprintln(w, "metric\tcpus\tA\tB\tdelta\tnA\tnB\tA_range\tB_range\tdisjoint")
+	fmt.Fprintln(w, "metric\tcpus\tA\tB\tdelta\tB/A\tnA\tnB\tA_range\tB_range\tdisjoint")
 	for _, k := range keys {
 		if len(b[k]) == 0 {
 			continue
@@ -126,8 +126,8 @@ func WriteAB(w io.Writer, statuses []*Status) {
 		if ahi < blo || bhi < alo {
 			disjoint = "yes"
 		}
-		fmt.Fprintf(w, "%s\t%d\t%.6g\t%.6g\t%+.1f%%\t%d\t%d\t%.6g-%.6g\t%.6g-%.6g\t%s\n",
-			k.metric, k.cpus, ma, mb, 100*(mb-ma)/ma, len(a[k]), len(b[k]),
+		fmt.Fprintf(w, "%s\t%d\t%.6g\t%.6g\t%+.1f%%\t%.2fx\t%d\t%d\t%.6g-%.6g\t%.6g-%.6g\t%s\n",
+			k.metric, k.cpus, ma, mb, 100*(mb-ma)/ma, mb/ma, len(a[k]), len(b[k]),
 			alo, ahi, blo, bhi, disjoint)
 	}
 }
