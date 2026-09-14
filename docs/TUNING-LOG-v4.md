@@ -236,8 +236,10 @@ here, and worth a look on its own -- it never failed under KVM.
 
 PKU: the switcher path uses the existing `SWITCHER_PKRU_TO_SMOD` and never
 takes a PK error code; pkey-allowed/denied pass under KVM with and without
-pti.  MMIO: never a candidate (a guest MMIO access is to a present guest
-PTE; its P=0 retry is on the same page and goes to the MMU).  Sanitizer:
+pti.  MMIO: the first access to an MMIO page with no SPTE yet is a P=0 fault
+on a present guest PTE, so it can be delivered once, spuriously; the retry
+is on the same page, goes to the MMU and is emulated as before (and once
+the MMIO SPTE exists, faults carry RSVD and are never candidates).  Sanitizer:
 not run (no KASAN build in this pass).
 
 Security invariants, reviewed for the stub:
