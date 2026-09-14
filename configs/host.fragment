@@ -30,8 +30,8 @@ CONFIG_VIRTIO_SCSI=y
 # Transparent huge pages, as every production host has.  Without them the
 # shadow MMU maps the guest's direct map with 4K SPTEs, which adds ~0.3
 # supervisor shadow faults per freshly used page and halves nothing but the
-# benchmark (TUNING-LOG-v2.md).  HOST_CONFIG_EXTRA=CONFIG_TRANSPARENT_HUGEPAGE=n
-# builds the diagnostic control without them.
+# benchmark.  `pvmtest build host -extra CONFIG_TRANSPARENT_HUGEPAGE=n` builds
+# the diagnostic control without them.
 CONFIG_TRANSPARENT_HUGEPAGE=y
 
 # The host runs qemu.

@@ -68,11 +68,12 @@ PVM exit reasons — and that perf needs libtraceevent, because
 
 ```
 sudo apt install libtraceevent-dev python3-dev libdw-dev
-make -C tools/perf O=/home/aledbf/Trabajo/github/build-perf -j$(nproc)
+make -C tools/perf O=../build-perf-lean -j$(nproc)
 ```
 
-`run-l1.sh` picks the binary up from `$PERF`, defaulting to
-`../build-perf/perf`, and ships it on the payload share. The agent checks
+`pvmtest` picks the binary up from `$PERF`, defaulting to
+`../build-perf-lean/perf` next to the testbed, and ships it on the payload
+share. The agent checks
 that `perf kvm stat` actually works before using it: a perf built without
 libtraceevent answers the subcommand with its own usage text, which
 wrapped around qemu costs the whole run and says nothing about why.

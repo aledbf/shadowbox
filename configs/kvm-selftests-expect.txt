@@ -34,7 +34,7 @@ x86/max_vcpuid_cap_test		intel	pass
 x86/sync_regs_test		pvm	pass	KVM_SYNC_X86_REGS against the switcher's save/restore
 x86/sync_regs_test		intel	pass
 
-# --- fails under both: the testbed, not PVM ---------------------------
+# --- was "fails under both"; now PVM only --------------------------------
 # "MMIO during vectoring error handling" wants KVM_EXIT_INTERNAL_ERROR and
 # gets KVM_EXIT_SHUTDOWN.  It does this under kvm-intel too, where L1 is
 # itself a nested guest, so this says nothing about PVM.  Worth revisiting
@@ -47,7 +47,7 @@ set_memory_region_test		intel	pass	passed 2/2 on 2026-09-13
 
 # --- declared PVM gaps ------------------------------------------------
 # PVM advertises neither capability, so the tests skip themselves rather
-# than failing.  Both are known and listed in docs/STATUS.md.
+# than failing.  Both are known gaps.
 pre_fault_memory_test		pvm	skip	no KVM_CAP_PRE_FAULT_MEMORY
 pre_fault_memory_test		intel	pass
 x86/smm_test			pvm	skip	no KVM_CAP_X86_SMM -- PVM stubs SMM

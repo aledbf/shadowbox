@@ -18,6 +18,13 @@ a baseline can be read as "this is what commit X measured here".  Record a
 new one with `make perf-baseline` after deliberately changing something
 that moves the numbers -- and say in the commit message why.
 
+**The recorded baseline is stale.** It was taken at `86c154bbb372`, before
+L1 had THP and before direct #PF, so it overstates PVM's fault costs and
+`make perf-matrix` will mostly report improvements against it.  Re-record it
+on a timing host build at the current tip before trusting a regression
+verdict.  For PVM against upstream KVM, `batteries/kvm-vs-pvm.pvm` measures
+both sides fresh and needs no baseline.
+
 ## On the threshold
 
 The default is 15%.  A single run of the perf suite inside two layers of

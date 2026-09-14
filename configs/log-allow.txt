@@ -10,8 +10,8 @@
 # --- the PVM backend's declared gaps ------------------------------------
 # kvm_x86_vendor_init() and kvm_pmu_ops_update() WARN once per kvm_x86_ops,
 # kvm_x86_nested_ops and kvm_pmu_ops entry that the vendor module leaves
-# NULL.  PVM implements no nested virtualisation and no PMU on purpose; see
-# docs/STATUS.md.  Delete these when those gaps close, not before.
+# NULL.  PVM implements no nested virtualisation and no PMU on purpose.
+# Delete these when those gaps close, not before.
 WARNING: .*kvm-x86-ops\.h:[0-9]+ at kvm_x86_vendor_init\+
 WARNING: .*kvm-x86-nested-ops\.h:[0-9]+ at kvm_x86_vendor_init\+
 WARNING: .*kvm-x86-pmu-ops\.h:[0-9]+ at kvm_pmu_ops_update\+

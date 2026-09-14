@@ -6,9 +6,13 @@ Nothing here touches this machine's running kernel.
 **Picking this up cold?** `docs/BRIEFING.md` is where it stands: the
 measurements, what is structural and what is not, what has already been tried
 and why it failed, and the ways to measure that do not fool you. Read it before
-proposing a performance change or a smaller diff. `docs/STATUS.md` is the
-bring-up record and `docs/DEBUGGING.md` is how to see into a guest that dies
-before it can print.
+proposing a performance change or a smaller diff. `docs/DEBUGGING.md` is how
+to see into a guest that dies before it can print.
+
+The testbed carries no kernel. `KSRC` names the tree `make kernels` builds
+from, and a battery's `kernel` directive builds a host+guest image set from
+any git tree and revision (`KERNEL_GIT`), which is how
+`batteries/kvm-vs-pvm.pvm` compares upstream `master` against the PVM series.
 
 Only one step can need root, and only on some machines: building the L1
 root filesystem. `mmdebstrap` does it unprivileged where unprivileged
@@ -94,8 +98,10 @@ tools/pvmtest/  build, boot, check, run batteries (the one command)
 tools/l1agent/  runs inside L1: loads the vendor, boots the guest, reports
 tools/hosttests/ the VMM-side tests, run inside L1 against /dev/kvm
 initrd/         the guest's entire user space
+baselines/      recorded perf matrices, one per machine
 out/            everything built (gitignored)
-out/logs/       one serial log per boot; this is the primary evidence
+out/results/    one directory per battery run: logs, manifest, summary
+out/logs/       serial logs of single boots outside a battery
 ```
 
 ## The initrd
@@ -112,7 +118,7 @@ result line, and powers the machine off. Every path through it ends in a
 result line and a power off — a VM that hangs after a failure is a three
 minute wait for an answer it already had.
 
-The scripts outside key off exactly one line:
+The host side keys off exactly one line:
 
 ```
 PVMTEST-RESULT: ok tag=stage0-pvh-default suite=default pass=19 fail=0
@@ -166,7 +172,7 @@ Both vendors are run, because a selftest that behaves identically under
 
 There are still no kvm-unit-tests.
 
-`make security` checks that a guest user process cannot reach guest kernel
+`batteries/check.pvm` (`make check`) includes the `security` suite, which checks that a guest user process cannot reach guest kernel
 memory or the host's window, but the security argument as a whole wants
 review rather than a test run.
 
