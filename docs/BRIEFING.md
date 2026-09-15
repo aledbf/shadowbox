@@ -11,7 +11,7 @@ Read "The design" and "Ruled out" before proposing anything.
 Two repositories:
 
 - `github.com/aledbf/linux`, branch **`pvm`** - the kernel series on upstream
-  `master` (v7.3-rc2+27): 54 commits, each building host and guest on its own,
+  `master` (v7.3-rc2+27): 56 commits, each building host and guest on its own,
   plus one last commit marked NOT FOR UPSTREAM with the debug instrumentation
   (`CONFIG_KVM_PVM_STATS`).
 - `pvm-testbed` - the harness, and only the harness: it carries no kernel.
@@ -86,30 +86,26 @@ guest. It serves on its own, without an exit to KVM:
 ### Upstream KVM against PVM
 
 `batteries/kvm-vs-pvm.pvm`: `master` (host and guest, `kvm-intel` in L1)
-against `pvm` at 778da18f840e (host and guest, `kvm-pvm`, direct #PF on), each a
-timing build, same L1 shape, order alternating, medians of 5. i9-13900HK, L1
-with 8 vCPUs and THP:
+against `pvm` at 93a43289b682 (host and guest, `kvm-pvm`, direct #PF on), each a
+timing build, same L1 shape, order alternating, medians of 5, on an idle
+machine. i9-13900HK, L1 with 8 vCPUs and THP:
 
 | benchmark | KVM, 1 cpu | PVM, 1 cpu | 1 cpu | 2 | 4 | 8 |
 |---|---:|---:|---:|---:|---:|---:|
-| `perf/syscall` (getpid) | 58.0 ns | 230 ns | 3.97x | 3.80x | 3.86x | 3.89x |
-| `perf/context-switch` (pipe) | 5194 ns | 8140 ns | 1.57x | 1.79x | 1.68x | - |
-| `perf/page-fault` | 1047 ns | 3023 ns | 2.89x | 2.75x | 2.99x | 3.01x |
-| `perf/parallel-fault` | 689 ns | 2789 ns | 4.05x | 2.97x | 5.07x | 6.97x |
-| `perf/fault-scaling` | 793 ns | 2738 ns | 3.45x | 3.07x | 2.82x | 2.66x |
-| `perf/fork-exec` | 456 µs | 1638 µs | 3.59x | 4.37x | 4.83x | 5.27x |
-| `perf/parallel-fork` | 436 µs | 1603 µs | 3.68x | 4.02x | 5.08x | 7.35x |
+| `perf/syscall` (getpid) | 58.6 ns | 210 ns | 3.59x | 3.58x | 3.56x | 3.60x |
+| `perf/context-switch` (pipe) | 5205 ns | 7504 ns | 1.44x | 1.57x | 1.72x | - |
+| `perf/page-fault` | 997 ns | 2977 ns | 2.99x | 3.04x | 3.01x | 2.99x |
+| `perf/parallel-fault` | 679 ns | 2769 ns | 4.08x | 3.20x | 7.84x | 5.38x |
+| `perf/fault-scaling` | 786 ns | 2855 ns | 3.63x | 3.10x | 2.80x | 2.90x |
+| `perf/fork-exec` | 457 µs | 1631 µs | 3.57x | 4.34x | 4.37x | 5.41x |
+| `perf/parallel-fork` | 433 µs | 1580 µs | 3.65x | 3.94x | 5.02x | 6.77x |
 
-All 120 boots passed. The ranges are disjoint everywhere except context-switch
-at 1 and 2 cpus and page-fault at 2. Context-switch loses reps at 2 and 4 cpus
-and reports nothing at 8 - read that row as indicative. The `fault-rounds`
-refaults are 2.2-5.4x, with one outlier at 4 cpus.
-
-Open: `parallel-fault` at 4 and 8 cpus and `syscall` are slower than they were
-before the upstream cleanup (4.71x -> 6.97x at 8 cpus, 211 -> 230 ns); the
-cleanup added VERW and BHB clearing on every world switch, PVCS dirty marking
-under SRCU on every exit, a CR2 push on every entry and a flush of the current
-root on INVLPG hypercalls. Which of these costs what has not been measured.
+All 120 boots passed, and the ranges are disjoint everywhere except page-fault
+at 2 cpus. Context-switch loses reps at 2 and 4 cpus and reports nothing at 8 -
+read that row as indicative. `parallel-fault` above one cpu has the widest
+spread of the suite (the same build has measured 855-1466 ns at 8 cpus); compare
+kernels on it only with an interleaved `ab`. The `fault-rounds` refaults are
+2.3-4.7x.
 
 **The nesting inflates PVM's numbers.** Every `vcpu_enter_guest()` reads
 `MSR_IA32_DEBUGCTLMSR`, which in L1 is an exit to L0 costing ~0.8-1 µs.
@@ -231,24 +227,25 @@ boot and `pvmtest stats <log>`.
 
 ## Open leads: fewer changes
 
-`master..pvm` without the instrumentation commit: 54 commits, 114 files, 10190
-insertions, 369 deletions. The first five commits are fixes that stand on
+`master..pvm` without the instrumentation commit: 56 commits, 118 files, 11373
+insertions, 369 deletions, including two KVM selftests for PVM. The first five
+commits are fixes that stand on
 their own (objtool pv_ops matching, RDPKRU/WRPKRU emulation and its selftest,
 exception state ordering, vendor-narrowed ARCH_CAPABILITIES).
 
 | area | files | + | − | note |
 |---|---:|---:|---:|---|
-| `arch/x86/kvm/pvm` | 4 | 4253 | 0 | new, nothing shared |
-| `Documentation` | 4 | 1246 | 0 | spec, invariants |
-| `arch/x86/entry` | 13 | 1212 | 107 | switcher (new), guest entry, hooks |
+| `arch/x86/kvm/pvm` | 4 | 4298 | 0 | new, nothing shared |
+| `Documentation` | 4 | 1251 | 0 | spec, invariants |
+| `arch/x86/entry` | 13 | 1222 | 107 | switcher (new), guest entry, hooks |
 | `arch/x86/include` | 26 | 1041 | 61 | |
-| `arch/x86/kernel` | 19 | 990 | 47 | mostly PIE + the guest side |
-| `tools` | 8 | 364 | 15 | objtool, perf, one selftest |
+| `arch/x86/kernel` | 19 | 991 | 47 | mostly PIE + the guest side |
+| `tools` | 10 | 1472 | 15 | objtool, perf, three selftests |
 | `arch/x86/kvm/mmu` | 4 | 258 | 29 | the shared shadow MMU |
 | `arch/x86/boot` | 3 | 248 | 4 | early relocation, kernel mapping |
-| `arch/x86/kvm` (other) | 11 | 163 | 28 | vendor hooks |
+| `arch/x86/kvm` (other) | 13 | 176 | 28 | vendor hooks |
 | `arch/x86/mm` | 8 | 101 | 19 | |
-| the rest | 14 | 314 | 59 | Kconfig, Makefiles, relocs, bpf, power, xen |
+| the rest | 14 | 315 | 59 | Kconfig, Makefiles, relocs, bpf, power, xen |
 
 Targets, in the order a reviewer would care:
 
