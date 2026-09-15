@@ -34,6 +34,12 @@ x86/max_vcpuid_cap_test		intel	pass
 x86/sync_regs_test		pvm	pass	KVM_SYNC_X86_REGS against the switcher's save/restore
 x86/sync_regs_test		intel	pass
 
+# --- PVM only: skip without kvm-pvm -------------------------------------
+x86/pvm_direct_pf_test		pvm	pass	direct #PF delivery, repeat rule, never-direct cases, reset
+x86/pvm_direct_pf_test		intel	skip
+x86/pvm_msr_save_restore_test	pvm	pass	PVM MSRs in KVM_GET_MSR_INDEX_LIST, restore before the PVCS memslot
+x86/pvm_msr_save_restore_test	intel	skip
+
 # --- open PVM failure ---------------------------------------------------
 # "MMIO during vectoring error handling" wants KVM_EXIT_INTERNAL_ERROR and
 # gets KVM_EXIT_SHUTDOWN under PVM.  kvm-intel passes it in the same L1, so
@@ -68,7 +74,7 @@ x86/smm_test			intel	pass
 # gets KVM_EXIT_DEBUG -- works fine.
 x86/kvm_pv_test			pvm	fail	guest expects an injected #GP; no PVCS published
 x86/kvm_pv_test			intel	pass
-x86/userspace_msr_exit_test	pvm	pass	msr_filter_allow skips itself under kvm-pvm: a selftest guest registers no MSR_PVM_EVENT_ENTRY, so the #GP KVM would inject can only be a triple fault
+x86/userspace_msr_exit_test	pvm	fail	msr_filter_allow: a selftest guest registers no MSR_PVM_EVENT_ENTRY, so the #GP KVM injects can only be a triple fault
 x86/userspace_msr_exit_test	intel	pass
 
 # --- fail under PVM only with the default module parameters ------------
